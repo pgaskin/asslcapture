@@ -45,6 +45,15 @@ func TODO(lib string) {
 	}
 	defer ef.Close()
 
+	maybe, err := analyze.IsMaybeBoringSSL(ef)
+	if err != nil {
+		panic(err)
+	}
+
+	if !maybe {
+		panic("not boringssl")
+	}
+
 	off, _, err := analyze.LogSecret(ef)
 	if err != nil {
 		panic(err)
