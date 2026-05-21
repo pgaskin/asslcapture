@@ -139,7 +139,7 @@ type loadSegment struct {
 func readSegments(ef *elf.File) (loadSegments, error) {
 	var segments loadSegments
 	for _, prog := range ef.Progs {
-		if prog.Type != elf.PT_LOAD || prog.Flags&elf.PF_R == 0 {
+		if prog.Type != elf.PT_LOAD {
 			continue
 		}
 		data, err := io.ReadAll(prog.Open())
