@@ -27,6 +27,8 @@ import (
 // cat /proc/*/maps | grep -e libssl -e libconscrypt -e libchrome -e cronet | grep -oE '/.+' | sort -u
 // TODO: watch processes and scan for libs
 
+// TODO: figure out how to handle libs directly from apks, e.g., /product/app/webview/webview.apk!/lib/arm64-v8a/libwebviewchromium.so
+
 // TODO: refactor this into a proper wrapper
 func TODO(lib string) {
 	if err := rlimit.RemoveMemlock(); err != nil {
