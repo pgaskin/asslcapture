@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Patrick Gaskin
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Package probe contains an ARM64 uprobe for capturing the BoringSSL keylog.
+//
+// TODO: armv7 support
 package probe
 
 import (
@@ -20,6 +23,9 @@ import (
 )
 
 //go:generate go tool bpf2go -tags linux -target arm64 probe probe.c
+
+// cat /proc/*/maps | grep -e libssl -e libconscrypt -e libchrome -e cronet | grep -oE '/.+' | sort -u
+// TODO: watch processes and scan for libs
 
 // TODO: refactor this into a proper wrapper
 func TODO(lib string) {
@@ -88,7 +94,7 @@ func TODO(lib string) {
 		}
 	}()
 
-	fmt.Println(off, s3, cr)
+	fmt.Fprintln(os.Stderr, lib, off, s3, cr)
 
 	for {
 		record, err := rd.Read()

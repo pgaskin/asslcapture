@@ -4,6 +4,8 @@
 // Package analyze statically analyzes the ARM64 BoringSSL libssl.so (or
 // binaries linking it statically) to find offsets for logging TLS secrets.
 //
+// TODO: armv7 support
+//
 // I asked claude to pull a bunch of conscrypt versions since 2017 from maven
 // and also look at the source code (directly and with clang), disassembly
 // (using llvm-objdump), and the results of running [FindLogSecret] and
