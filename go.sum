@@ -1,0 +1,4 @@
+github.com/ulikunitz/xz v0.5.15 h1:9DNdB5s+SgV3bQ2ApL10xRc35ck0DuIX/isZvIk+ubY=
+github.com/ulikunitz/xz v0.5.15/go.mod h1:nbz6k7qbPmH4IRqmfOplQw/tblSgqTqBwxkY0oWt/14=
+golang.org/x/arch v0.27.0 h1:0WNVcR8u9yFz8j5FvdHpgwNp3FS5U4guYdzHwEiGjoU=
+golang.org/x/arch v0.27.0/go.mod h1:0X+GdSIP+kL5wPmpK7sdkEVTt2XoYP0cSjQSbZBwOi8=
