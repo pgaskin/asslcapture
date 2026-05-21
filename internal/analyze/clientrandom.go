@@ -13,13 +13,13 @@ import (
 // ClientRandomSize is SSL3_RANDOM_SIZE.
 const ClientRandomSize = 32
 
-// FindClientRandom infers the offset of s3->client_random within ssl_st from
-// the ssl_log_secret implementation.
+// ClientRandom infers the offset of s3->client_random within ssl_st from the
+// ssl_log_secret implementation.
 //
 // Internally, the ssl_log_secret will call cbb_add_hex_consttime(cbb,
 // ssl->s3->client_random), which may be inlined. Both ssl and s3 are pointers,
 // and client_random is a byte array of length [ClientRandomSize].
-func FindClientRandom(ef *elf.File, offset uint64) (s3, clientRandom int, err error) {
+func ClientRandom(ef *elf.File, offset uint64) (s3, clientRandom int, err error) {
 	if err := checkARM64(ef); err != nil {
 		return 0, 0, err
 	}

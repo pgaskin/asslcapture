@@ -23,8 +23,8 @@ var keylogLabels = []string{
 	"EXPORTER_SECRET",
 }
 
-// FindLogSecret finds the file offset of bssl::ssl_log_secret, which is called
-// with the arguments:
+// LogSecret finds the file offset of bssl::ssl_log_secret, which is called with
+// the arguments:
 //
 //	x0: SSL* ssl (i.e., ssl_st*)
 //	x1: const char *label
@@ -45,20 +45,20 @@ var keylogLabels = []string{
 // simplicity.
 //
 // The CLIENT_RANDOM to identify the keylog line is taken from
-// ssl->s3->client_random. Use [FindClientRandom] to find the offset.
+// ssl->s3->client_random. Use [ClientRandom] to find the offset.
 //
 // See `git log -S 'ssl_log_secret'`.
-func FindLogSecret(ef *elf.File) (fileOffset uint64, warn []error, err error) {
+func LogSecret(ef *elf.File) (fileOffset uint64, warn []error, err error) {
 	if err := checkARM64(ef); err != nil {
 		return 0, nil, err
 	}
 	var errs []error
-	if fileOffset, err := FindLogSecretMiniDebug(ef); err != nil {
+	if fileOffset, err := LogSecretMiniDebug(ef); err != nil {
 		errs = append(errs, fmt.Errorf("minidebuginfo: %w", err))
 	} else {
 		return fileOffset, warn, nil
 	}
-	if fileOffset, candidates, err := FindLogSecretHeuristic(ef); err != nil {
+	if fileOffset, candidates, err := LogSecretHeuristic(ef); err != nil {
 		errs = append(errs, fmt.Errorf("heuristic: %w", err))
 	} else {
 		for label, o := range candidates {
@@ -71,11 +71,11 @@ func FindLogSecret(ef *elf.File) (fileOffset uint64, warn []error, err error) {
 	return 0, nil, fmt.Errorf("failed to find bssl::ssl_log_secret function: %w", errors.Join(errs...))
 }
 
-// FindLogSecretHeuristic finds ssl_log_secret by looking for a compatible
-// symbol in the MiniDebugInfo. This works on most dynamic libssl.so binaries,
-// including the one shipped in Android (system or APEX) and the one in the
+// LogSecretMiniDebug finds ssl_log_secret by looking for a compatible symbol in
+// the MiniDebugInfo. This works on most dynamic libssl.so binaries, including
+// the one shipped in Android (system or APEX) and the one in the
 // org.conscrypt:conscrypt-android library.
-func FindLogSecretMiniDebug(ef *elf.File) (fileOffset uint64, err error) {
+func LogSecretMiniDebug(ef *elf.File) (fileOffset uint64, err error) {
 	if err := checkARM64(ef); err != nil {
 		return 0, err
 	}
@@ -123,7 +123,7 @@ func FindLogSecretMiniDebug(ef *elf.File) (fileOffset uint64, err error) {
 // FindLogSecretHeuristic finds ssl_log_secret by looking for
 // ssl_log_secret(ssl, label, ...) calls where label is a constant string
 // reference to a valid keylog secret label.
-func FindLogSecretHeuristic(ef *elf.File) (fileOffset uint64, candidates map[string][]uint64, err error) {
+func LogSecretHeuristic(ef *elf.File) (fileOffset uint64, candidates map[string][]uint64, err error) {
 	if err := checkARM64(ef); err != nil {
 		return 0, nil, err
 	}
