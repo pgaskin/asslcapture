@@ -3,6 +3,43 @@
 
 // Package analyze statically analyzes the ARM64 BoringSSL libssl.so (or
 // binaries linking it statically) to find offsets for logging TLS secrets.
+//
+// I asked claude to pull a bunch of conscrypt versions since 2017 from maven
+// and also look at the source code (directly and with clang), disassembly
+// (using llvm-objdump), and the results of running [FindLogSecret] and
+// [FindClientRandom] (I'm only using claude for testing, not for writing the
+// logic, since I don't trust it enough for that and it's more fun to do it
+// myself anyways), and it gave the following:
+//
+//	s3 offset history in ssl_st / SSLConnection
+//	============================================
+//
+//	RC2 / RC8    Mar–Jun 2017    s3 = 72
+//	  method*(8) + int version(4) + max_version(2) + min_version(2) +
+//	  max_send_frag(2) + pad(6) + rbio*(8) + wbio*(8) + handshake_func*(8) +
+//	  init_buf*(8) + init_msg*(8) + init_num(4) + pad(4)
+//
+//	RC10         Sep 2017        s3 = 56     (-16)
+//	  8f36c51f9: int version → uint16_t; 4×u16 now pack without padding (-8)
+//	  7934f08b2: remove init_msg*(8) + init_num(4)+pad(4) (-16),
+//	             add tls13_variant enum(4)+pad(2+2) (+8)
+//
+//	RC13/RC14    Nov–Dec 2017    s3 = 48     (-8)
+//	  32ce0ac0d: remove init_buf*(8)
+//
+//	1.0.0        Feb 2018        s3 = 40     (-8)
+//	  2f9b47fb1: move tls13_variant enum out to SSL3_STATE (-4-2pad-2pad)
+//
+//	1.4.2+       Dec 2018–now    s3 = 48     (+8)
+//	  b7bc80a9a: introduce SSL_CONFIG; move version fields into it,
+//	             insert UniquePtr<SSL_CONFIG>(8) before max_send_frag,
+//	             which now stands alone and creates 6 bytes of padding
+//
+//	SSL3_STATE.client_random = 48 throughout (read_seq(8) + write_seq(8) + server_random(32))
+//	SSL3_RANDOM_SIZE = 32 since the initial BoringSSL import, fixed by the TLS wire format
+//
+// I've also manually tested this agains a bunch of libchrome.so versions and
+// libssl.so from vendor firmware, aosp, and the mainline conscrypt apex.
 package analyze
 
 import (
@@ -215,4 +252,36 @@ func immShiftVal(v arm64asm.ImmShift) (uint64, bool) {
 		return 0, false
 	}
 	return n, true
+}
+
+// ldrImmVal returns the base register and immediate offset of a MemImmediate
+// AddrOffset arg (i.e., [base, #imm] addressing) by parsing its string form
+// (the actual values are in unexported fields).
+func ldrImmVal(arg arm64asm.Arg) (base arm64asm.Reg, offset int64, ok bool) {
+	m, isMemImm := arg.(arm64asm.MemImmediate)
+	if !isMemImm || m.Mode != arm64asm.AddrOffset {
+		return 0, 0, false
+	}
+	s := strings.TrimPrefix(m.String(), "[")
+	s = strings.TrimSuffix(s, "]")
+	_, immPart, hasImm := strings.Cut(s, ",")
+	if !hasImm {
+		return arm64asm.Reg(m.Base), 0, true
+	}
+	immPart = strings.TrimPrefix(immPart, "#")
+	n, err := strconv.ParseInt(immPart, 10, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return arm64asm.Reg(m.Base), n, true
+}
+
+// memExtendVal returns the base and index registers of a MemExtend arg (i.e.,
+// [base, index] or [base, index, extend #amount]).
+func memExtendVal(arg arm64asm.Arg) (base, index arm64asm.Reg, ok bool) {
+	m, isMemExtend := arg.(arm64asm.MemExtend)
+	if !isMemExtend {
+		return 0, 0, false
+	}
+	return arm64asm.Reg(m.Base), m.Index, true
 }

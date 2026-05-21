@@ -45,7 +45,7 @@ var keylogLabels = []string{
 // simplicity.
 //
 // The CLIENT_RANDOM to identify the keylog line is taken from
-// ssl->s3->client_random.
+// ssl->s3->client_random. Use [FindClientRandom] to find the offset.
 //
 // See `git log -S 'ssl_log_secret'`.
 func FindLogSecret(ef *elf.File) (fileOffset uint64, warn []error, err error) {
