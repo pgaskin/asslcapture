@@ -141,7 +141,6 @@ type attachSpec struct {
 type attachKey struct {
 	path   string
 	offset uint64
-	cpu    int
 }
 
 // probeInstance contains a single instance of the BPF program, plus the buffers
@@ -331,15 +330,8 @@ func (p *Probe) Attach(path string, offset int64, s3, cr int) error {
 		return err
 	}
 
-	online, err := uprobe.OnlineCPUs()
-	if err != nil {
-		return fmt.Errorf("online cpus: %w", err)
-	}
-
-	for _, cpu := range online {
-		if err := p.uprobeLocked(pi, spec, cpu); err != nil {
-			return err
-		}
+	if err := p.uprobeLocked(pi, spec); err != nil {
+		return err
 	}
 
 	p.targets = append(p.targets, spec)
@@ -439,9 +431,11 @@ func (p *Probe) ringLocked(pi *probeInstance, cpu int) error {
 }
 
 // uprobeLocked creates a uprobe for the specified target if it doesn't already
-// exist.
-func (p *Probe) uprobeLocked(pi *probeInstance, spec attachSpec, cpu int) error {
-	k := attachKey{spec.path, spec.offset, cpu}
+// exist. A single event covers all CPUs: uprobe perf events do not enforce CPU
+// pinning (they fire on whatever CPU executes the breakpoint), so creating one
+// per CPU would invoke the BPF program N times per hit.
+func (p *Probe) uprobeLocked(pi *probeInstance, spec attachSpec) error {
+	k := attachKey{spec.path, spec.offset}
 
 	if _, exists := p.uprobes[k]; exists {
 		return nil // already attached
@@ -451,20 +445,23 @@ func (p *Probe) uprobeLocked(pi *probeInstance, spec attachSpec, cpu int) error 
 		Path:   spec.path,
 		Offset: spec.offset,
 		PID:    -1,
-		CPU:    cpu,
+		// pid=-1 requires cpu>=0, but the value doesn't matter since CPU
+		// pinning doesn't affect uprobes (we still need the per-cpu buffers
+		// though)
+		CPU: 0,
 	})
 	if err != nil {
-		return fmt.Errorf("open uprobe %s+%#x cpu %d: %w", spec.path, spec.offset, cpu, err)
+		return fmt.Errorf("open uprobe %s+%#x: %w", spec.path, spec.offset, err)
 	}
 
 	progFD := pi.prog.FD()
 	if err := evt.SetBPF(progFD); err != nil {
 		evt.Close()
-		return fmt.Errorf("set bpf %s+%#x cpu %d: %w", spec.path, spec.offset, cpu, err)
+		return fmt.Errorf("set bpf %s+%#x: %w", spec.path, spec.offset, err)
 	}
 	if err := evt.Enable(); err != nil {
 		evt.Close()
-		return fmt.Errorf("enable uprobe %s+%#x cpu %d: %w", spec.path, spec.offset, cpu, err)
+		return fmt.Errorf("enable uprobe %s+%#x: %w", spec.path, spec.offset, err)
 	}
 
 	p.uprobes[k] = evt
@@ -544,23 +541,6 @@ func (p *Probe) handleHotplug() {
 					if err := p.ringLocked(pi, ev.CPU); err != nil {
 						p.fatal(fmt.Errorf("hotplug: handle %d online: create ring buffer: %w", ev.CPU, err))
 						return
-					}
-				}
-				for _, spec := range p.targets {
-					pi := p.instances[spec.config]
-					if pi != nil {
-						if err := p.uprobeLocked(pi, spec, ev.CPU); err != nil {
-							// TODO: warn about errors somehow? not fatal though,
-							// since it could just be that the lib no longer exists
-						}
-					}
-				}
-			} else {
-				for _, spec := range p.targets {
-					k := attachKey{spec.path, spec.offset, ev.CPU}
-					if evt, ok := p.uprobes[k]; ok {
-						_ = evt.Close()
-						delete(p.uprobes, k)
 					}
 				}
 			}
