@@ -6,6 +6,7 @@
 package main
 
 import (
+	"debug/elf"
 	"fmt"
 	"os"
 	"os/exec"
@@ -39,6 +40,7 @@ func run() error {
 	cmd := exec.Command(
 		filepath.Join(ndk, "toolchains", "llvm", "prebuilt", "linux-x86_64", "bin", "clang"),
 		"-c",
+		"-g", // need this for relocations to be generated
 		"-O2",
 		"-mcpu=v1",
 		"-target", "bpfel",
@@ -52,18 +54,32 @@ func run() error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return err
+		return fmt.Errorf("compile: %w", err)
 	}
 
 	cmd = exec.Command(
 		filepath.Join(ndk, "toolchains", "llvm", "prebuilt", "linux-x86_64", "bin", "llvm-strip"),
+		"-g", // need this for relocations
 		filepath.Join(pwd, "probe_arm64.o"),
 	)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return err
+		return fmt.Errorf("strip: %w", err)
 	}
 
+	if err := check("probe_arm64.o"); err != nil {
+		return fmt.Errorf("check: %w", err)
+	}
+
+	return nil
+}
+
+func check(bpf string) error {
+	ef, err := elf.Open(bpf)
+	if err != nil {
+		return err
+	}
+	_ = ef
 	return nil
 }
