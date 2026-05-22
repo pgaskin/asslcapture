@@ -28,6 +28,11 @@ struct event {
 	__s64 secret_len;
 };
 
+// TODO: on 5.15+, we could make the config a hash map on the bpf cookie so we
+// can reuse the loaded program for all probes, but that's a bit too new and
+// we'd lose too much version support... (and the alternatives would require
+// janky stuff like reading proc maps and mapping on process ids)
+
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__uint(max_entries, 1);
@@ -42,12 +47,18 @@ struct {
 
 SEC("uprobe/ssl_log_secret")
 int uprobe_ssl_log_secret(struct pt_regs *ctx) {
-	struct event ev = {};
+	__u32 pid = (__u32) bpf_get_current_pid_tgid();
+    __u32 cpu = bpf_get_smp_processor_id();
 
 	void       *ssl        = (void *)       PT_REGS_PARM1(ctx); // const SSL *ssl
 	const char *label      = (const char *) PT_REGS_PARM2(ctx); // const char *label
 	const __u8 *secret     = (const __u8 *) PT_REGS_PARM3(ctx); // const uint8_t* secret / bssl::Span<const uint8_t>->data_
 	__s64       secret_len = (__s64)        PT_REGS_PARM4(ctx); // size_t secret_len / bssl::Span<const uint8_t>->size_
+
+	bpf_printk("ssl_log_secret ssl=%p (pid=%u cpu=%u)\n", ssl, pid, cpu);
+	bpf_printk("ssl_log_secret label=%p secret=%p secret_len=%d\n", label, secret, secret_len);
+
+	struct event ev = {};
 	if (!ssl || !label || !secret) {
         ev.debug_line = __LINE__;
         goto emit;
@@ -98,9 +109,12 @@ int uprobe_ssl_log_secret(struct pt_regs *ctx) {
 
     ev.debug_ret = 0;
     ev.debug_ptr = 0;
-    ev.debug_line = __LINE__;
-emit:
-	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &ev, sizeof(ev));
+    ev.debug_line = -1; // ok
+    emit:
+    {
+        long ret = bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &ev, sizeof(ev));
+        bpf_printk("emit %s %02x (ret=%d)\n", ev.label, ev.client_random[0], ret);
+    }
 	return 0;
 }
 

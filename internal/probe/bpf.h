@@ -26,9 +26,15 @@ struct pt_regs;
 
 // bpf helpers
 static void *(* const bpf_map_lookup_elem)(void *map, const void *key) = (void *(*)(void *, const void *)) 1;
+static long (* const bpf_trace_printk)(const char *fmt, __u32 fmt_size, ...) = (long (*)(const char *, __u32, ...)) 6;
+static __u32 (* const bpf_get_smp_processor_id)(void) = (__u32 (*)(void)) 8;
+static __u64 (* const bpf_get_current_pid_tgid)(void) = (__u64 (*)(void)) 14;
 static long (* const bpf_perf_event_output)(void *ctx, void *map, __u64 flags, void *data, __u64 size) = (long (*)(void *, void *, __u64, void *, __u64)) 25;
 static long (* const bpf_probe_read_user)(void *dst, __u32 size, const void *unsafe_ptr) = (long (*)(void *, __u32, const void *)) 112;
 static long (* const bpf_probe_read_user_str)(void *dst, __u32 size, const void *unsafe_ptr) = (long (*)(void *, __u32, const void *)) 114;
+
+// echo 1 > /sys/kernel/tracing/tracing_on && cat /sys/kernel/tracing/trace_pipe
+#define bpf_printk(fmt, ...) bpf_trace_printk(fmt, sizeof(fmt), ##__VA_ARGS__)
 
 // bpf utils
 #define SEC(name) __attribute__((section(name), used))
