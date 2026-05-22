@@ -1,141 +1,20 @@
 // SPDX-FileCopyrightText: 2026 Patrick Gaskin
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package probe contains an ARM64 uprobe for capturing the BoringSSL keylog.
+// Package probe manages the uprobe for reading boringssl secrets.
 //
-// TODO: armv7 support
+// I'd have used cilium/ebpf for the logic, but:
+//
+//   - It doesn't support attaching probes to libs in zip files (this is an Android-specific linker feature.)
+//   - I want to use the perf_event_open syscall (4.18+, same kconfig) so the probe lifecycle is tied to the fd.
+//   - I need to handle CPU hotplug (i.e., cores being turned on and off), which it doesn't do.
+//   - I already have file offsets and don't want its calculations (which can't currently be skipped).
+//
+// Since I don't need most of the features anyways, it's easier to just
+// implement it myself, which also gives me explicit control over the behaviour.
+//
+// Pert of the reason why ecapture is so unreliable on Android is because it
+// doesn't take into account any of these things.
 package probe
 
-import (
-	"bytes"
-	"debug/elf"
-	"encoding/binary"
-	"errors"
-	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
-
-	"github.com/cilium/ebpf/link"
-	"github.com/cilium/ebpf/perf"
-	"github.com/cilium/ebpf/rlimit"
-	"github.com/pgaskin/asslcapture/internal/analyze"
-)
-
-//go:generate go tool bpf2go -tags linux -target arm64 probe probe.c
-
-// cat /proc/*/maps | grep -e libssl -e libconscrypt -e libchrome -e cronet | grep -oE '/.+' | sort -u
-// TODO: watch processes and scan for libs
-
-// TODO: figure out how to handle libs directly from apks, e.g., /product/app/webview/webview.apk!/lib/arm64-v8a/libwebviewchromium.so
-
-// TODO: refactor this into a proper wrapper
-func TODO(lib string) {
-	if err := rlimit.RemoveMemlock(); err != nil {
-		panic(err)
-	}
-
-	var objs probeObjects
-	if err := loadProbeObjects(&objs, nil); err != nil {
-		panic(err)
-	}
-	defer objs.Close()
-
-	ef, err := elf.Open(lib)
-	if err != nil {
-		panic(err)
-	}
-	defer ef.Close()
-
-	maybe, err := analyze.IsMaybeBoringSSL(ef)
-	if err != nil {
-		panic(err)
-	}
-
-	if !maybe {
-		panic("not boringssl")
-	}
-
-	off, _, err := analyze.LogSecret(ef)
-	if err != nil {
-		panic(err)
-	}
-
-	s3, cr, err := analyze.ClientRandom(ef, off)
-	if err != nil {
-		panic(err)
-	}
-
-	ex, err := link.OpenExecutable(lib)
-	if err != nil {
-		panic(err)
-	}
-
-	up, err := ex.Uprobe("ssl_log_secret", objs.UprobeSslLogSecret, &link.UprobeOptions{
-		Address: off, // this is a file offset, not a virtual address
-		Offset:  0,
-		PID:     -1,
-	})
-	if err != nil {
-		panic(err)
-	}
-	defer up.Close()
-
-	if err := objs.ConfigMap.Put(uint32(0), probeConfig{
-		S3:           int64(s3),
-		ClientRandom: int64(cr),
-	}); err != nil {
-		panic(err)
-	}
-
-	rd, err := perf.NewReader(objs.Events, os.Getpagesize())
-	if err != nil {
-		panic(err)
-	}
-	defer rd.Close()
-
-	stopper := make(chan os.Signal, 1)
-	signal.Notify(stopper, os.Interrupt, syscall.SIGTERM)
-
-	go func() {
-		<-stopper
-
-		if err := rd.Close(); err != nil {
-			_ = err
-		}
-	}()
-
-	fmt.Fprintln(os.Stderr, lib, off, s3, cr)
-
-	for {
-		record, err := rd.Read()
-		if err != nil {
-			if errors.Is(err, perf.ErrClosed) {
-				return
-			}
-			panic(err)
-		}
-
-		if record.LostSamples != 0 {
-			fmt.Printf("dropped %d\n", record.LostSamples)
-			continue
-		}
-
-		var event probeEvent
-		if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &event); err != nil {
-			_ = err
-			continue
-		}
-
-		label := make([]byte, len(event.Label))
-		for i, c := range event.Label {
-			if c == 0 {
-				label = label[:i]
-				break
-			}
-			label[i] = byte(c)
-		}
-		//fmt.Printf("%d %d %#x\n", event.DebugLine, event.DebugRet, event.DebugPtr)
-		fmt.Printf("%s %x %x\n", label, event.ClientRandom, event.Secret[:event.SecretLen])
-	}
-}
+//go:generate go run build.go
