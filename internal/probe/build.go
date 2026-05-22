@@ -1,5 +1,8 @@
 //go:build ignore
 
+// SPDX-FileCopyrightText: 2026 Patrick Gaskin
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package main
 
 import (
