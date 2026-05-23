@@ -22,14 +22,12 @@ package probe
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
+	"iter"
 	"slices"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -71,26 +69,6 @@ func newEvent(e *probeEvent) *Event {
 		ClientRandom: slices.Clone(e.ClientRandom[:]),
 		Secret:       slices.Clone(e.Secret[:min(len(e.Secret), int(e.SecretLen))]),
 	}
-}
-
-// String formats the event as a sslkeylog line.
-func (e *Event) String() string {
-	var b []byte
-	if e.Error != nil {
-		b = append(b, "# error: "...)
-		if s := e.Error.Error(); strings.Contains(s, "\n") {
-			b = strconv.AppendQuote(b, s)
-		} else {
-			b = append(b, s...)
-		}
-	} else {
-		b = append(b, e.Label...)
-		b = append(b, ' ')
-		b = hex.AppendEncode(b, e.ClientRandom)
-		b = append(b, ' ')
-		b = hex.AppendEncode(b, e.Secret)
-	}
-	return string(b)
 }
 
 // Options configures a Probe.
@@ -275,6 +253,16 @@ func (pi *probeInstance) Close() error {
 	return errors.Join(errs...)
 }
 
+// Err returns the fatal error for the probe, if any.
+func (p *Probe) Err() error {
+	select {
+	case <-p.fatalCh:
+		return p.fatalErr
+	default:
+		return nil
+	}
+}
+
 func (p *Probe) fatal(err error) {
 	p.fatalOnce.Do(func() {
 		p.fatalErr = err
@@ -282,32 +270,60 @@ func (p *Probe) fatal(err error) {
 	})
 }
 
-// Read returns the next keylog event, blocking until it is available, the probe
-// is closed, or a fatal error occurs. The number of dropped events since the
-// last call, if any, is returned.
-func (p *Probe) Read() (e *Event, dropped int, err error) {
+// Read blocks until an event is available or dropped events are detected,
+// setting ok to true. If a fatal error occurs, ok is set to false, and
+// [Probe.Err] contains the error. If [Probe.Close] is called, ok is set to
+// false and [Probe.Err] is nil.
+func (p *Probe) Read() (e *Event, dropped int, ok bool) {
+	return p.read(nil)
+}
+
+// Events iterates over events, yielding the event (may be nil) and the number
+// of dropped events preceding it. If a fatal error occurs, the probe is closed,
+// or ctx is cancelled, the iterator returns immediately. If it returned due to
+// a fatal error, [Probe.Err] will be non-nil.
+func (p *Probe) Events(ctx context.Context) iter.Seq2[*Event, int] {
+	return func(yield func(*Event, int) bool) {
+		for {
+			e, dropped, ok := p.read(ctx.Done())
+			if !ok {
+				return // fatal error or closed
+			}
+			if err := ctx.Err(); err != nil {
+				return // interrupted
+			}
+			if !yield(e, dropped) {
+				return // break
+			}
+		}
+	}
+}
+
+func (p *Probe) read(interrupt <-chan struct{}) (e *Event, dropped int, ok bool) {
 	defer func() {
 		dropped = int(p.dropped.Load())
 		p.dropped.Add(-int64(dropped))
 	}()
 	select {
+	case <-interrupt:
+		return nil, 0, true
+	case e = <-p.events:
+		return e, dropped, true
 	case <-p.fatalCh:
-		return nil, dropped, p.fatalErr
+		// fatal error
+	case <-p.done:
+		// closed
+	}
+	// drain and notify dropped before returning ok=false
+	select {
+	case ev := <-p.events:
+		return ev, dropped, true
 	default:
 	}
-	select {
-	case e = <-p.events:
-		return e, dropped, nil
-	case <-p.fatalCh:
-		return nil, dropped, p.fatalErr
-	case <-p.done:
-		select {
-		case ev := <-p.events: // drain first
-			return ev, dropped, nil
-		default:
-		}
-		return nil, dropped, os.ErrClosed
+	if dropped > 0 {
+		return nil, dropped, true
 	}
+	return nil, 0, false
 }
 
 // Attach adds a uprobe for the specified file path and offsets if not already
