@@ -20,6 +20,7 @@ import (
 	"github.com/gopacket/gopacket/pcapgo"
 	"github.com/pgaskin/asslcapture/internal/probe"
 	"github.com/pgaskin/go-pcapfilter"
+	"golang.org/x/net/bpf"
 )
 
 // Options configures a PcapNG capture.
@@ -130,11 +131,11 @@ func PcapNG(ctx context.Context, w io.Writer, p *probe.Probe, log *slog.Logger, 
 
 	// apply the capture filter
 	if opt.Filter != "" {
-		raw, err := pcapfilter.Compile(opt.Filter, nil)
+		prog, err := pcapfilter.Compile(opt.Filter, nil)
 		if err != nil {
 			return fmt.Errorf("compile filter: %w", err)
 		}
-		if err := handle.SetBPF(raw); err != nil {
+		if err := handle.SetBPF(toBPF(prog.Instructions())); err != nil {
 			return fmt.Errorf("set filter: %w", err)
 		}
 	}
@@ -460,4 +461,8 @@ func (s *slabPool) release(data []byte) {
 	}
 	*extra = 0xFF
 	s.pool <- data[: 0 : s.size+1]
+}
+
+func toBPF(raw []pcapfilter.RawInstruction) []bpf.RawInstruction {
+	return unsafe.Slice((*bpf.RawInstruction)(unsafe.SliceData(raw)), len(raw))
 }

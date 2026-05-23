@@ -5,10 +5,10 @@ go 1.26.1
 require (
 	github.com/cilium/ebpf v0.21.0
 	github.com/gopacket/gopacket v1.6.0
-	github.com/pgaskin/go-pcapfilter v0.0.1
+	github.com/pgaskin/go-pcapfilter v0.0.2
 	github.com/ulikunitz/xz v0.5.15
 	golang.org/x/arch v0.27.0
 	golang.org/x/sys v0.45.0
 )
 
-require golang.org/x/net v0.55.0 // indirect
+require golang.org/x/net v0.55.0
