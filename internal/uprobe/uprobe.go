@@ -1,5 +1,8 @@
 //go:build linux
 
+// SPDX-FileCopyrightText: 2026 Patrick Gaskin
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Package uprobe wraps uprobe functionality via the perf subsystem for non-BTF
 // eBPF programs.
 package uprobe
