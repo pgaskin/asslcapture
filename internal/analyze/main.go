@@ -46,6 +46,9 @@ func main() {
 				fmt.Printf("    %t\n", maybe)
 			}
 
+			fmt.Printf("  is_probably_linked_boringssl\n")
+			fmt.Printf("    %t\n", analyze.IsProbablyLinkedBoringSSL(ef.File))
+
 			fmt.Printf("  ssl_log_secret\n")
 			var off uint64
 

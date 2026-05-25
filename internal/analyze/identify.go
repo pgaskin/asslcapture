@@ -10,6 +10,30 @@ import (
 	"slices"
 )
 
+// IsProbablyLinkedBoringSSL checks if ef probably links BoringSSL, meaning it
+// probably doesn't embed it. This isn't perfect, and is intended to be used as
+// an optmization to avoid scanning large binaries unnecessarily.
+//
+// An example of this is the libmainlinecronet in the com.android.tethering
+// APEX. While cronet is usually compiled with BoringSSL statically linked
+// (e.g., libcronet in most Google apps), this one has stable_cronet_libssl.so
+// separately.
+func IsProbablyLinkedBoringSSL(ef *elf.File) bool {
+	var any, defined bool
+	if syms, err := ef.DynamicSymbols(); err == nil {
+		for _, sym := range syms {
+			switch sym.Name {
+			case "SSL_new", "SSL_CTX_new":
+				if sym.Section != elf.SHN_UNDEF {
+					defined = true
+				}
+				any = true
+			}
+		}
+	}
+	return any && !defined
+}
+
 var boringsslStrings = [][]string{
 	{
 		"unknown PSK identity",
@@ -29,6 +53,8 @@ var boringsslStrings = [][]string{
 	},
 }
 
+// IsMaybeBoringSSL searches the mapped segments for strings related to
+// BoringSSL. If it returns false, it probably isn't BoringSSL.
 func IsMaybeBoringSSL(ef *elf.File) (bool, error) {
 	if err := checkARM64(ef); err != nil {
 		return false, err
