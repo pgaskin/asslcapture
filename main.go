@@ -23,17 +23,18 @@ var config = struct {
 	Verbose bool `group:"general" short:"v" long:"verbose" doc:"enable debug output"`
 	Help    bool `group:"general" short:"h" long:"help" doc:"show this help text"`
 
-	IgnoreDbgInfo bool `group:"analysis" long:"ignore-dbginfo" doc:"ignore debug info, force full analysis"`
+	IgnoreDbgInfo bool `group:"analysis" short:"D" long:"ignore-dbginfo" doc:"ignore debug info, force full analysis"`
 
-	Cache        string   `group:"scan" short:"c" long:"cache" metavar:"filename" doc:"save and load information about scanned libs to this file"`
-	ScanLib      []string `group:"scan" short:"l" long:"scan-lib" metavar:"spec" doc:"scan a single elf file (/path/to/libssl.so), all libs in a zip file (/path/to/app.apk), or a specific lib in a zip file (/path/to/app.apk!/lib/arm64-v8a/libssl.so) (can be specified multiple times)"`
-	ScanProcMaps bool     `group:"scan" long:"scan-proc-maps" doc:"scan /proc/*/maps"`
-	ScanLibs     string   `group:"scan" long:"scan-libs" metavar:"dir" doc:"scan for libraries in a directory (using heuristics on the name)"`
-	ScanLibsSys  bool     `group:"scan" long:"scan-libs-sys" doc:"scan for libraries in standard lib dirs"`
-	ScanLibsApp  bool     `group:"scan" long:"scan-libs-app" doc:"scan for libraries in standard app dirs"`
+	Cache   string   `group:"scan" short:"c" long:"cache" metavar:"filename" doc:"save and load information about scanned libs to this file"`
+	Scan    bool     `group:"scan" short:"s" long:"scan" doc:"alias for a sensible combination of scan options (currently --scan-libs-sys --scan-libs-app)"`
+	ScanLib []string `group:"scan" short:"l" long:"scan-lib" metavar:"spec" doc:"scan a single elf file (/path/to/libssl.so), all libs in a zip file (/path/to/app.apk), or a specific lib in a zip file (/path/to/app.apk!/lib/arm64-v8a/libssl.so) (can be specified multiple times)"`
+	// TODO: ScanProcMaps bool `group:"scan" long:"scan-proc-maps" doc:"scan /proc/*/maps"`
+	ScanLibs    string `group:"scan" long:"scan-libs" metavar:"dir" doc:"scan for libraries in a directory (using heuristics on the name)"`
+	ScanLibsSys bool   `group:"scan" long:"scan-libs-sys" doc:"scan for libraries in standard lib dirs"`
+	ScanLibsApp bool   `group:"scan" long:"scan-libs-app" doc:"scan for libraries in standard app dirs"`
 
 	ProbeBuffer int  `group:"probe" long:"probe-buffer" doc:"number of uprobe events to buffer before dropping"`
-	ProbeNoRead bool `group:"probe" long:"probe-noread" doc:"use process_vm_readv to read from userspace instead of bpf_probe_read_user (may work better on old kernels, but slightly racy)"`
+	ProbeNoRead bool `group:"probe" short:"R" long:"probe-noread" doc:"use process_vm_readv to read from userspace instead of bpf_probe_read_user (may work better on old kernels, but slightly racy)"`
 
 	Capture              string        `group:"capture" short:"m" long:"capture" metavar:"mode" doc:"capture mode (if not specified, only scans then exits) (keylog, pcapng)"`
 	CaptureOutput        string        `group:"capture" short:"o" long:"capture-output" metavar:"filename" doc:"output filename (default stdout)"`
