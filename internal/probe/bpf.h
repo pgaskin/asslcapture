@@ -35,6 +35,8 @@ static long (* const bpf_perf_event_output)(void *ctx, void *map, __u64 flags, v
 // https://github.com/iovisor/bcc/issues/3783
 static long (* const bpf_probe_read_user)(void *dst, __u32 size, const void *unsafe_ptr) = (long (*)(void *, __u32, const void *)) 112; // 5.5 (but android kernels have it backported due to an arm64 bug in the non-_user variant)
 static long (* const bpf_probe_read_user_str)(void *dst, __u32 size, const void *unsafe_ptr) = (long (*)(void *, __u32, const void *)) 114; // same
+static __u64 (* const bpf_get_current_pid_tgid)(void) = (__u64 (*)(void)) 14; // 4.2: returns (tgid << 32 | pid)
+static __u64 (* const bpf_ktime_get_ns)(void) = (__u64 (*)(void)) 5;          // 4.1: CLOCK_MONOTONIC nanoseconds
 
 // bpf utils
 #define SEC(name) __attribute__((section(name), used))

@@ -30,6 +30,9 @@ var config = struct {
 	ScanLibsSys  bool     `group:"scan" long:"scan-libs-sys" doc:"scan for libraries in standard lib dirs"`
 	ScanLibsApp  bool     `group:"scan" long:"scan-libs-app" doc:"scan for libraries in standard app dirs"`
 
+	ProbeBuffer int  `group:"probe" long:"probe-buffer" doc:"number of uprobe events to buffer before dropping"`
+	ProbeNoRead bool `group:"probe" long:"probe-noread" doc:"use process_vm_readv to read from userspace instead of bpf_probe_read_user (may work better on old kernels, but slightly racy)"`
+
 	Capture              string        `group:"capture" short:"t" long:"capture" metavar:"mode" doc:"capture mode (if not specified, only scans then exits) (keylog, pcapng)"`
 	CaptureOutput        string        `group:"capture" short:"o" long:"capture-output" metavar:"filename" doc:"output filename (default stdout)"`
 	CaptureFilter        string        `group:"capture" short:"f" long:"capture-filter" metavar:"str" doc:"tcpdump-style capture filter (does not affect keylog)"`

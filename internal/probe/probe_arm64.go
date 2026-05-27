@@ -13,6 +13,15 @@ import (
 //go:embed probe_arm64.o
 var probeELF []byte
 
+//go:embed probe_noread_arm64.o
+var probeNoReadELF []byte
+
+const (
+	probeLabelMax         = 64
+	probeSecretMax        = 256
+	probeClientRandomSize = 32
+)
+
 type probeConfig struct {
 	_            structs.HostLayout
 	S3           int64
@@ -20,12 +29,27 @@ type probeConfig struct {
 }
 
 type probeEvent struct {
-	_            structs.HostLayout
-	DebugLine    int64
-	DebugRet     int64
-	DebugPtr     int64
-	Label        [64]int8
-	ClientRandom [32]uint8
-	Secret       [256]uint8
+	_         structs.HostLayout
+	Timestamp uint64
+	PID       uint32
+
+	DebugLine int64
+	DebugRet  int64
+	DebugPtr  int64
+
+	Label        [probeLabelMax]int8
+	ClientRandom [probeClientRandomSize]uint8
+	Secret       [probeSecretMax]uint8
 	SecretLen    int64
+}
+
+type probeNoReadEvent struct {
+	_         structs.HostLayout
+	Timestamp uint64
+	PID       uint32
+
+	LabelPtr  uint64
+	SecretPtr uint64
+	SecretLen int64
+	SSLPtr    uint64
 }

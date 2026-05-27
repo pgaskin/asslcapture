@@ -37,41 +37,50 @@ func run() error {
 		return err
 	}
 
-	cmd := exec.Command(
-		filepath.Join(ndk, "toolchains", "llvm", "prebuilt", "linux-x86_64", "bin", "clang"),
-		"-c",
-		"-g", // need this for relocations to be generated
-		"-O2",
-		"-mcpu=v1",
-		"-target", "bpfel",
-		"-D__TARGET_ARCH_arm64",
-		"-Wall", "-Wno-compare-distinct-pointer-types",
-		"-o", filepath.Join(pwd, "probe_arm64.o"),
-		"-fdebug-prefix-map="+pwd+"=.",
-		"-fdebug-compilation-dir", ".",
-		filepath.Join(pwd, "probe.c"),
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("compile: %w", err)
+	clang := filepath.Join(ndk, "toolchains", "llvm", "prebuilt", "linux-x86_64", "bin", "clang")
+	strip := filepath.Join(ndk, "toolchains", "llvm", "prebuilt", "linux-x86_64", "bin", "llvm-strip")
+
+	compile := func(output string, cflags ...string) error {
+		args := []string{
+			"-c",
+			"-g", // need this for relocations to be generated
+			"-O2",
+			"-mcpu=v1",
+			"-target", "bpfel",
+			"-D__TARGET_ARCH_arm64",
+			"-Wall", "-Wno-compare-distinct-pointer-types",
+			"-o", filepath.Join(pwd, output),
+			"-fdebug-prefix-map=" + pwd + "=.",
+			"-fdebug-compilation-dir", ".",
+		}
+		args = append(args, cflags...)
+		args = append(args, filepath.Join(pwd, "probe.c"))
+		cmd := exec.Command(clang, args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("compile %s: %w", output, err)
+		}
+
+		cmd = exec.Command(strip, "-g", filepath.Join(pwd, output)) // -g: keep relocations
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("strip %s: %w", output, err)
+		}
+
+		if err := check(output); err != nil {
+			return fmt.Errorf("check %s: %w", output, err)
+		}
+		return nil
 	}
 
-	cmd = exec.Command(
-		filepath.Join(ndk, "toolchains", "llvm", "prebuilt", "linux-x86_64", "bin", "llvm-strip"),
-		"-g", // need this for relocations
-		filepath.Join(pwd, "probe_arm64.o"),
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("strip: %w", err)
+	if err := compile("probe_arm64.o"); err != nil {
+		return err
 	}
-
-	if err := check("probe_arm64.o"); err != nil {
-		return fmt.Errorf("check: %w", err)
+	if err := compile("probe_noread_arm64.o", "-DNOREAD"); err != nil {
+		return err
 	}
-
 	return nil
 }
 

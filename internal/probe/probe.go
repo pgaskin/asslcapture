@@ -31,6 +31,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -46,13 +47,20 @@ import (
 
 // Event is a decoded keylog event from the BPF program.
 type Event struct {
+	Delay        time.Duration // time from uprobe start to end of processing
+	PID          int
 	Error        error
 	Label        string
 	ClientRandom []byte
 	Secret       []byte
 }
 
-func newEvent(e *probeEvent) *Event {
+func newEvent(e *probeEvent) (ev *Event) {
+	defer func() {
+		if e != nil && ev != nil {
+			ev.Delay = monotonicTimeSince(e.Timestamp)
+		}
+	}()
 	if e.DebugLine != -1 {
 		return &Event{
 			Error: fmt.Errorf("probe error (line=%d ret=%d ptr=%#x)", e.DebugLine, e.DebugRet, e.DebugPtr),
@@ -66,9 +74,56 @@ func newEvent(e *probeEvent) *Event {
 		label = append(label, byte(c))
 	}
 	return &Event{
+		PID:          int(e.PID),
 		Label:        string(label),
 		ClientRandom: slices.Clone(e.ClientRandom[:]),
 		Secret:       slices.Clone(e.Secret[:min(len(e.Secret), int(e.SecretLen))]),
+	}
+}
+
+func newNoreadEvent(e *probeNoReadEvent, cfg configKey) (ev *Event) {
+	defer func() {
+		if e != nil && ev != nil {
+			ev.Delay = monotonicTimeSince(e.Timestamp)
+		}
+	}()
+	pid := int(e.PID)
+
+	labelBuf := make([]byte, probeLabelMax)
+	if err := procVMRead(pid, e.LabelPtr, labelBuf); err != nil {
+		return &Event{Delay: monotonicTimeSince(e.Timestamp), Error: fmt.Errorf("read label (pid=%d ptr=%#x): %w", pid, e.LabelPtr, err)}
+	}
+	if i := bytes.IndexByte(labelBuf, 0); i >= 0 {
+		labelBuf = labelBuf[:i]
+	}
+
+	secretLen := int(e.SecretLen)
+	if secretLen < 0 || secretLen > probeSecretMax {
+		secretLen = probeSecretMax
+	}
+	secret := make([]byte, secretLen)
+	if secretLen > 0 {
+		if err := procVMRead(pid, untagPtr(e.SecretPtr), secret); err != nil {
+			return &Event{Delay: monotonicTimeSince(e.Timestamp), Error: fmt.Errorf("read secret (pid=%d ptr=%#x): %w", pid, e.SecretPtr, err)}
+		}
+	}
+
+	s3PtrBuf := make([]byte, 8)
+	if err := procVMRead(pid, untagPtr(e.SSLPtr)+uint64(cfg.s3), s3PtrBuf); err != nil {
+		return &Event{Delay: monotonicTimeSince(e.Timestamp), Error: fmt.Errorf("read s3 ptr (pid=%d ssl=%#x off=%d): %w", pid, e.SSLPtr, cfg.s3, err)}
+	}
+	s3Ptr := binary.LittleEndian.Uint64(s3PtrBuf)
+
+	clientRandom := make([]byte, probeClientRandomSize)
+	if err := procVMRead(pid, untagPtr(s3Ptr)+uint64(cfg.cr), clientRandom); err != nil {
+		return &Event{Delay: monotonicTimeSince(e.Timestamp), Error: fmt.Errorf("read client_random (pid=%d s3=%#x off=%d): %w", pid, s3Ptr, cfg.cr, err)}
+	}
+
+	return &Event{
+		Label:        string(labelBuf),
+		ClientRandom: clientRandom,
+		Secret:       secret,
+		Delay:        monotonicTimeSince(e.Timestamp),
 	}
 }
 
@@ -76,6 +131,15 @@ func newEvent(e *probeEvent) *Event {
 type Options struct {
 	// BufferSize is the number of events to buffer before dropping them.
 	BufferSize int
+
+	// NoRead uses an alternative BPF probe which only captures pointers and the
+	// PID, then reads the label, secret, and client_random from the target
+	// process in userspace with process_vm_readv. Although this is racy (though
+	// this won't usually be an issue since the objects we read from are
+	// long-lived, and we're reading near the start of their life), this may
+	// work better on old kernels with broken userspace memory reading or overly
+	// strict verifiers.
+	NoRead bool
 }
 
 // Probe manages the uprobes to capture BoringSSL secrets. All methods are
@@ -85,6 +149,7 @@ type Probe struct {
 	tracefs bool // use tracefs instead of perf
 	cpus    int  // number of possible CPUs
 	hotplug *uprobe.CPUHotplug
+	noRead  bool
 
 	mu sync.Mutex
 	wg sync.WaitGroup // workers
@@ -99,9 +164,10 @@ type Probe struct {
 	targets   []attachSpec                 // current uprobe targets (for hotplug)
 	uprobes   map[attachKey]*uprobe.Event  // per-cpu uprobe perf event buffers
 
-	epollFd  int // for ring buffers
-	cancelFd int // eventfd to wake epoll
-	ringFd   map[int]*uprobe.Ring
+	epollFd      int // for ring buffers
+	cancelFd     int // eventfd to wake epoll
+	ringFd       map[int]*uprobe.Ring
+	ringInstance map[int]*probeInstance // used in noRead mode to look up config key per ring
 
 	fatalOnce sync.Once
 	fatalCh   chan struct{} // closed when fatalErr is set
@@ -126,8 +192,9 @@ type attachKey struct {
 // probeInstance contains a single instance of the BPF program, plus the buffers
 // for all cpus (including offline ones).
 type probeInstance struct {
+	cfg    configKey
 	prog   *ebpf.Program
-	config *ebpf.Map
+	config *ebpf.Map // nil in noRead mode
 	events *ebpf.Map
 	ring   []*uprobe.Ring
 }
@@ -178,18 +245,20 @@ func New(opts *Options) (*Probe, error) {
 	}
 
 	p := &Probe{
-		cpus:      cpus,
-		hotplug:   hotplug,
-		pmu:       pmu,
-		tracefs:   tracefs,
-		instances: make(map[configKey]*probeInstance),
-		uprobes:   make(map[attachKey]*uprobe.Event),
-		epollFd:   epollFd,
-		cancelFd:  cancelFd,
-		ringFd:    make(map[int]*uprobe.Ring),
-		events:    make(chan *Event, cmp.Or(opts.BufferSize, 64)),
-		done:      make(chan struct{}),
-		fatalCh:   make(chan struct{}),
+		cpus:         cpus,
+		hotplug:      hotplug,
+		pmu:          pmu,
+		tracefs:      tracefs,
+		noRead:       opts.NoRead,
+		instances:    make(map[configKey]*probeInstance),
+		uprobes:      make(map[attachKey]*uprobe.Event),
+		epollFd:      epollFd,
+		cancelFd:     cancelFd,
+		ringFd:       make(map[int]*uprobe.Ring),
+		ringInstance: make(map[int]*probeInstance),
+		events:       make(chan *Event, cmp.Or(opts.BufferSize, 64)),
+		done:         make(chan struct{}),
+		fatalCh:      make(chan struct{}),
 	}
 	p.wg.Add(2)
 	p.wg.Go(p.handleEvents)
@@ -247,8 +316,10 @@ func (pi *probeInstance) Close() error {
 	if err := pi.prog.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("prog: %w", err))
 	}
-	if err := pi.config.Close(); err != nil {
-		errs = append(errs, fmt.Errorf("config: %w", err))
+	if pi.config != nil {
+		if err := pi.config.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("config: %w", err))
+		}
 	}
 	if err := pi.events.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("events: %w", err))
@@ -370,7 +441,12 @@ func (p *Probe) instanceLocked(cfg configKey) (*probeInstance, error) {
 		return pi, nil // instance with the required config already exists, reuse it
 	}
 
-	spec, err := ebpf.LoadCollectionSpecFromReader(bytes.NewReader(probeELF))
+	elf := probeELF
+	if p.noRead {
+		elf = probeNoReadELF
+	}
+
+	spec, err := ebpf.LoadCollectionSpecFromReader(bytes.NewReader(elf))
 	if err != nil {
 		return nil, fmt.Errorf("load bpf: parse elf: %w", err)
 	}
@@ -390,22 +466,26 @@ func (p *Probe) instanceLocked(cfg configKey) (*probeInstance, error) {
 		col.Close()
 		return nil, fmt.Errorf("load bpf: missing program")
 	}
-	config, ok := col.Maps["config_map"]
-	if !ok {
-		col.Close()
-		return nil, fmt.Errorf("load bpf: missing map")
-	}
 	events, ok := col.Maps["events"]
 	if !ok {
 		col.Close()
 		return nil, fmt.Errorf("load bpf: missing events")
 	}
-	if err := config.Put(uint32(0), probeConfig{
-		S3:           int64(cfg.s3),
-		ClientRandom: int64(cfg.cr),
-	}); err != nil {
-		col.Close()
-		return nil, fmt.Errorf("set config: %w", err)
+
+	var configMap *ebpf.Map
+	if !p.noRead {
+		configMap, ok = col.Maps["config_map"]
+		if !ok {
+			col.Close()
+			return nil, fmt.Errorf("load bpf: missing map")
+		}
+		if err := configMap.Put(uint32(0), probeConfig{
+			S3:           int64(cfg.s3),
+			ClientRandom: int64(cfg.cr),
+		}); err != nil {
+			col.Close()
+			return nil, fmt.Errorf("set config: %w", err)
+		}
 	}
 
 	// detach from collection so Close doesn't close them
@@ -415,8 +495,9 @@ func (p *Probe) instanceLocked(cfg configKey) (*probeInstance, error) {
 	col.Close()
 
 	pi := &probeInstance{
+		cfg:    cfg,
 		prog:   prog,
-		config: config,
+		config: configMap, // nil in noRead mode
 		events: events,
 		ring:   make([]*uprobe.Ring, p.cpus),
 	}
@@ -459,6 +540,7 @@ func (p *Probe) ringLocked(pi *probeInstance, cpu int) error {
 	}
 	pi.ring[cpu] = r
 	p.ringFd[ringFD] = r
+	p.ringInstance[ringFD] = pi
 
 	return nil
 }
@@ -532,6 +614,7 @@ func (p *Probe) handleEvents() {
 			}
 			p.mu.Lock()
 			ring, ok := p.ringFd[fd]
+			pi := p.ringInstance[fd]
 			p.mu.Unlock()
 			if !ok {
 				continue
@@ -545,11 +628,24 @@ func (p *Probe) handleEvents() {
 					p.dropped.Add(1)
 				}
 				if data != nil {
-					var ev probeEvent
-					if err := binary.Read(bytes.NewReader(data), binary.LittleEndian, &ev); err != nil {
-						continue // TODO: warn?
+					var out *Event
+					if p.noRead {
+						var ev probeNoReadEvent
+						if err := binary.Read(bytes.NewReader(data), binary.LittleEndian, &ev); err != nil {
+							continue // TODO: warn?
+						}
+						var cfg configKey
+						if pi != nil {
+							cfg = pi.cfg
+						}
+						out = newNoreadEvent(&ev, cfg)
+					} else {
+						var ev probeEvent
+						if err := binary.Read(bytes.NewReader(data), binary.LittleEndian, &ev); err != nil {
+							continue // TODO: warn?
+						}
+						out = newEvent(&ev) // copies the data
 					}
-					out := newEvent(&ev) // copies the data
 					select {
 					case p.events <- out:
 					default:
@@ -593,4 +689,43 @@ func epollAdd(epollFd, fd int) error {
 		Events: unix.EPOLLIN,
 		Fd:     int32(fd),
 	})
+}
+
+func procVMRead(pid int, addr uint64, buf []byte) error {
+	if len(buf) == 0 {
+		return nil
+	}
+	local := unix.Iovec{Base: &buf[0]}
+	local.SetLen(len(buf))
+	remote := unix.RemoteIovec{Base: uintptr(addr), Len: len(buf)}
+	n, err := unix.ProcessVMReadv(pid, []unix.Iovec{local}, []unix.RemoteIovec{remote}, 0)
+	if err != nil {
+		return err
+	}
+	if n != len(buf) {
+		return fmt.Errorf("short read: got %d, want %d", n, len(buf))
+	}
+	return nil
+}
+
+// untagPtr strips the top byte used by scudo/MTE pointer tagging on Android.
+func untagPtr(p uint64) uint64 {
+	return p &^ (uint64(0xFF) << 56)
+}
+
+// monotonicTimeSince returns the elapsed time since bpfNs, a CLOCK_MONOTONIC
+// timestamp captured by bpf_ktime_get_ns inside the probe.
+func monotonicTimeSince(ns uint64) time.Duration {
+	if ns == 0 {
+		return 0
+	}
+	var ts unix.Timespec
+	if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts); err != nil {
+		return 0
+	}
+	now := uint64(ts.Sec)*1e9 + uint64(ts.Nsec)
+	if now < ns {
+		return 0
+	}
+	return time.Duration(now - ns)
 }

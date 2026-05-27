@@ -13,12 +13,23 @@
 // the top bytes, resulting in an EFAULT
 #define UNTAG(p) ((void *)((__u64)(p) & ~(0xFFUL << 56)))
 
+#ifndef NOREAD
 struct config {
 	__s64 s3;            // offsetof(bssl::SSL, s3)
 	__s64 client_random; // offsetof(bssl::SSL3_STATE, client_random)
 };
+#endif
 
 struct event {
+	__u64 timestamp;
+	__u32 pid;
+#ifdef NOREAD
+	__u32 _pad;
+	__u64 label_ptr;
+	__u64 secret_ptr;
+	__s64 secret_len;
+	__u64 ssl_ptr;
+#else
 	__s64 debug_line;
 	__s64 debug_ret;
 	__s64 debug_ptr;
@@ -26,6 +37,7 @@ struct event {
 	__u8  client_random[CLIENT_RANDOM_SIZE];
 	__u8  secret[SECRET_MAX];
 	__s64 secret_len;
+#endif
 };
 
 // TODO: on 5.15+, we could make the config a hash map on the bpf cookie so we
@@ -33,12 +45,14 @@ struct event {
 // we'd lose too much version support... (and the alternatives would require
 // janky stuff like reading proc maps and mapping on process ids)
 
+#ifndef NOREAD
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__uint(max_entries, 1);
 	__type(key, __u32);
 	__type(value, struct config);
 } config_map SEC(".maps");
+#endif
 
 struct {
 	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
@@ -47,12 +61,25 @@ struct {
 
 SEC("uprobe/ssl_log_secret")
 int uprobe_ssl_log_secret(struct pt_regs *ctx) {
+	__u64       timestamp  = bpf_ktime_get_ns();                // CLOCK_MONOTONIC
+	__u32       pid        = bpf_get_current_pid_tgid() >> 32;  // pid
 	void       *ssl        = (void *)       PT_REGS_PARM1(ctx); // const SSL *ssl
 	const char *label      = (const char *) PT_REGS_PARM2(ctx); // const char *label
 	const __u8 *secret     = (const __u8 *) PT_REGS_PARM3(ctx); // const uint8_t* secret / bssl::Span<const uint8_t>->data_
 	__s64       secret_len = (__s64)        PT_REGS_PARM4(ctx); // size_t secret_len / bssl::Span<const uint8_t>->size_
 
-	struct event ev = {};
+	struct event ev = {
+		.timestamp = timestamp,
+		.pid = pid,
+	};
+
+#ifdef NOREAD
+	ev.label_ptr  = (__u64) label;
+	ev.secret_ptr = (__u64) secret;
+	ev.secret_len = secret_len;
+	ev.ssl_ptr    = (__u64) ssl;
+	goto emit;
+#else
 	if (!ssl || !label || !secret) {
 		ev.debug_line = __LINE__;
 		goto emit;
@@ -101,7 +128,8 @@ int uprobe_ssl_log_secret(struct pt_regs *ctx) {
 	ev.debug_ret = 0;
 	ev.debug_ptr = 0;
 	ev.debug_line = -1; // ok
-	emit:
+#endif
+emit:
 	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &ev, sizeof(ev));
 	return 0;
 }
