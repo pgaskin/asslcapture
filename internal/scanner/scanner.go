@@ -820,7 +820,6 @@ func (s *Scanner) saveCache() error {
 }
 
 func (s *Scanner) callError(err error) {
-	s.log.Warn("scan failed", "error", err)
 	if s.opts.OnError != nil {
 		s.opts.OnError(err)
 	}
