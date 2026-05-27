@@ -5,6 +5,7 @@ package scanner
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -71,10 +72,12 @@ type Scanner struct {
 	opts *Options
 	log  *slog.Logger
 
-	mu     sync.Mutex
-	cond   *sync.Cond
-	closed bool
-	wg     sync.WaitGroup
+	mu        sync.Mutex
+	cond      *sync.Cond
+	closed    bool
+	ctx       context.Context
+	ctxCancel context.CancelFunc
+	wg        sync.WaitGroup
 
 	cache *Cache
 
@@ -227,11 +230,15 @@ func New(opts *Options) (*Scanner, error) {
 		cache.Offsets = make(map[kvlines.Hash]*Offsets)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	s := &Scanner{
 		opts:         opts,
 		log:          opts.Logger,
 		cache:        cache,
 		fileInflight: make(map[fileKey]*fileTask),
+		ctx:          ctx,
+		ctxCancel:    cancel,
 	}
 	s.cond = sync.NewCond(&s.mu)
 
@@ -247,6 +254,7 @@ func (s *Scanner) Close() error {
 	s.mu.Lock()
 	if !s.closed {
 		s.closed = true
+		s.ctxCancel()
 		s.cond.Broadcast()
 	}
 	s.mu.Unlock()
@@ -741,7 +749,7 @@ func (s *Scanner) processTask(task *fileTask) {
 		offsets = *cachedOffsets
 		task.info.Offset.Cached++
 	} else {
-		fnOff, warn, err := analyze.LogSecret(ef.File)
+		fnOff, warn, err := analyze.LogSecret(s.ctx, ef.File)
 		for _, w := range warn {
 			s.log.Warn("scanner warning", "name", task.key.name, "error", w)
 		}

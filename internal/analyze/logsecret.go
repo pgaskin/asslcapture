@@ -4,6 +4,7 @@
 package analyze
 
 import (
+	"context"
 	"debug/elf"
 	"errors"
 	"fmt"
@@ -48,7 +49,7 @@ var keylogLabels = []string{
 // ssl->s3->client_random. Use [ClientRandom] to find the offset.
 //
 // See `git log -S 'ssl_log_secret'`.
-func LogSecret(ef *elf.File) (fileOffset uint64, warn []error, err error) {
+func LogSecret(ctx context.Context, ef *elf.File) (fileOffset uint64, warn []error, err error) {
 	if err := checkARM64(ef); err != nil {
 		return 0, nil, err
 	}
@@ -58,7 +59,7 @@ func LogSecret(ef *elf.File) (fileOffset uint64, warn []error, err error) {
 	} else {
 		return fileOffset, warn, nil
 	}
-	if fileOffset, candidates, err := LogSecretHeuristic(ef); err != nil {
+	if fileOffset, candidates, err := LogSecretHeuristic(ctx, ef); err != nil {
 		errs = append(errs, fmt.Errorf("heuristic: %w", err))
 	} else {
 		for label, o := range candidates {
@@ -123,7 +124,7 @@ func LogSecretMiniDebug(ef *elf.File) (fileOffset uint64, err error) {
 // FindLogSecretHeuristic finds ssl_log_secret by looking for
 // ssl_log_secret(ssl, label, ...) calls where label is a constant string
 // reference to a valid keylog secret label.
-func LogSecretHeuristic(ef *elf.File) (fileOffset uint64, candidates map[string][]uint64, err error) {
+func LogSecretHeuristic(ctx context.Context, ef *elf.File) (fileOffset uint64, candidates map[string][]uint64, err error) {
 	if err := checkARM64(ef); err != nil {
 		return 0, nil, err
 	}
@@ -172,6 +173,12 @@ func LogSecretHeuristic(ef *elf.File) (fileOffset uint64, candidates map[string]
 			inst, err := arm64asm.Decode(segment.Data[i:])
 			if err != nil {
 				continue
+			}
+
+			if i/4%4096 == 0 {
+				if err := ctx.Err(); err != nil {
+					return 0, nil, err
+				}
 			}
 
 			switch inst.Op {

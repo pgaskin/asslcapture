@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"os"
@@ -62,7 +63,7 @@ func main() {
 			}
 
 			fmt.Printf("    heuristic\n")
-			hoff, candidates, err := analyze.LogSecretHeuristic(ef.File)
+			hoff, candidates, err := analyze.LogSecretHeuristic(context.Background(), ef.File)
 			if len(candidates) != 0 {
 				fmt.Printf("      candidates\n")
 				for _, label := range slices.Sorted(maps.Keys(candidates)) {
