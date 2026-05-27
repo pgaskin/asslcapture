@@ -47,16 +47,10 @@ struct {
 
 SEC("uprobe/ssl_log_secret")
 int uprobe_ssl_log_secret(struct pt_regs *ctx) {
-	__u32 pid = (__u32) bpf_get_current_pid_tgid();
-    __u32 cpu = bpf_get_smp_processor_id();
-
 	void       *ssl        = (void *)       PT_REGS_PARM1(ctx); // const SSL *ssl
 	const char *label      = (const char *) PT_REGS_PARM2(ctx); // const char *label
 	const __u8 *secret     = (const __u8 *) PT_REGS_PARM3(ctx); // const uint8_t* secret / bssl::Span<const uint8_t>->data_
 	__s64       secret_len = (__s64)        PT_REGS_PARM4(ctx); // size_t secret_len / bssl::Span<const uint8_t>->size_
-
-	bpf_printk("ssl_log_secret ssl=%p (pid=%u cpu=%u)\n", ssl, pid, cpu);
-	bpf_printk("ssl_log_secret label=%p secret=%p secret_len=%d\n", label, secret, secret_len);
 
 	struct event ev = {};
 	if (!ssl || !label || !secret) {
@@ -111,10 +105,7 @@ int uprobe_ssl_log_secret(struct pt_regs *ctx) {
     ev.debug_ptr = 0;
     ev.debug_line = -1; // ok
     emit:
-    {
-        long ret = bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &ev, sizeof(ev));
-        bpf_printk("emit %s %02x (ret=%d)\n", ev.label, ev.client_random[0], ret);
-    }
+    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &ev, sizeof(ev));
 	return 0;
 }
 
