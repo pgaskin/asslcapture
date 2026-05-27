@@ -99,11 +99,6 @@ func newNoreadEvent(e *probeNoReadEvent, cfg configKey) (ev *Event) {
 		if err := procVMRead(pid, untagPtr(e.SecretPtr), secret); err != nil {
 			return &Event{Delay: monotonicTimeSince(e.Timestamp), Error: fmt.Errorf("read secret (pid=%d ptr=%#x): %w", pid, e.SecretPtr, err)}
 		}
-		if !slices.ContainsFunc(secret, func(b byte) bool {
-			return b != 0
-		}) {
-			return &Event{Delay: monotonicTimeSince(e.Timestamp), Error: fmt.Errorf("read secret (pid=%d ptr=%#x): all zeroes (we were probably too slow)", pid, e.SecretPtr)}
-		}
 	}
 
 	s3PtrBuf := make([]byte, 8)
@@ -123,6 +118,12 @@ func newNoreadEvent(e *probeNoReadEvent, cfg configKey) (ev *Event) {
 	}
 	if i := bytes.IndexByte(labelBuf, 0); i >= 0 {
 		labelBuf = labelBuf[:i]
+	}
+
+	if secretLen > 0 && !slices.ContainsFunc(secret, func(b byte) bool {
+		return b != 0
+	}) {
+		return &Event{Delay: monotonicTimeSince(e.Timestamp), Error: fmt.Errorf("read secret (pid=%d ptr=%#x label=%q client_random=%x): all zeroes (we were probably too slow)", pid, e.SecretPtr, labelBuf, clientRandom)}
 	}
 
 	return &Event{
