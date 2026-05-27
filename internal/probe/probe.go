@@ -142,6 +142,8 @@ type Options struct {
 	NoRead bool
 }
 
+const DefaultBufferSize = 64
+
 // Probe manages the uprobes to capture BoringSSL secrets. All methods are
 // goroutine-safe.
 type Probe struct {
@@ -256,7 +258,7 @@ func New(opts *Options) (*Probe, error) {
 		cancelFd:     cancelFd,
 		ringFd:       make(map[int]*uprobe.Ring),
 		ringInstance: make(map[int]*probeInstance),
-		events:       make(chan *Event, cmp.Or(opts.BufferSize, 64)),
+		events:       make(chan *Event, cmp.Or(opts.BufferSize, DefaultBufferSize)),
 		done:         make(chan struct{}),
 		fatalCh:      make(chan struct{}),
 	}

@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/lmittmann/tint"
+	"github.com/pgaskin/asslcapture/internal/capture"
 	"github.com/pgaskin/asslcapture/internal/pflagx"
+	"github.com/pgaskin/asslcapture/internal/probe"
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
 )
@@ -33,7 +35,7 @@ var config = struct {
 	ProbeBuffer int  `group:"probe" long:"probe-buffer" doc:"number of uprobe events to buffer before dropping"`
 	ProbeNoRead bool `group:"probe" long:"probe-noread" doc:"use process_vm_readv to read from userspace instead of bpf_probe_read_user (may work better on old kernels, but slightly racy)"`
 
-	Capture              string        `group:"capture" short:"t" long:"capture" metavar:"mode" doc:"capture mode (if not specified, only scans then exits) (keylog, pcapng)"`
+	Capture              string        `group:"capture" short:"m" long:"capture" metavar:"mode" doc:"capture mode (if not specified, only scans then exits) (keylog, pcapng)"`
 	CaptureOutput        string        `group:"capture" short:"o" long:"capture-output" metavar:"filename" doc:"output filename (default stdout)"`
 	CaptureFilter        string        `group:"capture" short:"f" long:"capture-filter" metavar:"str" doc:"tcpdump-style capture filter (does not affect keylog)"`
 	CaptureInterface     string        `group:"capture" short:"i" long:"capture-interface" metavar:"str" doc:"interface name to capture packets from (does not affect keylog)"`
@@ -41,7 +43,11 @@ var config = struct {
 	CaptureBufferPktSize int           `group:"capture" long:"capture-buffer-pktsize" doc:"size for pre-allocated packet buffers (oversized will be significantly less efficient) (does not affect keylog)"`
 	CaptureBufferSize    int           `group:"capture" long:"capture-buffer-size" doc:"number of packets to buffer (will start flushing packets before --capture-buffer-delay when this gets half full) (default: automatic) (does not affect keylog)"`
 }{
-	CaptureInterface: "any",
+	ProbeBuffer: probe.DefaultBufferSize,
+
+	CaptureInterface:     "any",
+	CaptureBufferDelay:   capture.DefaultDelay,
+	CaptureBufferPktSize: capture.DefaultPacketSize,
 }
 
 var flags *pflag.FlagSet

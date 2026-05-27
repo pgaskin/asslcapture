@@ -52,8 +52,8 @@ type Options struct {
 }
 
 const (
-	defaultDelay      = time.Millisecond * 25 // should be more than enough without being too much
-	defaultPacketSize = 1518                  // standard ethernet frame size
+	DefaultDelay      = time.Millisecond * 25 // should be more than enough without being too much
+	DefaultPacketSize = 1518                  // standard ethernet frame size
 )
 
 // AutoBufferSize automatically configures buffer parameters for:
@@ -66,8 +66,8 @@ const (
 //
 // It returns the amount of memory which will be allocated for packet data in bytes.
 func (o *Options) AutoBufferSize(delay time.Duration, packetSize, peakBitsPerSecond, peakPacketsPerSecond int) int {
-	o.Delay = max(1, cmp.Or(delay, defaultDelay))
-	o.PacketSize = max(1, cmp.Or(packetSize, defaultPacketSize))
+	o.Delay = max(1, cmp.Or(delay, DefaultDelay))
+	o.PacketSize = max(1, cmp.Or(packetSize, DefaultPacketSize))
 	o.Buffer = computeBufferSize(o.Delay, o.PacketSize, peakBitsPerSecond, peakPacketsPerSecond)
 	return o.Buffer * (o.PacketSize + 1) // slab size
 }
@@ -106,10 +106,10 @@ func PcapNG(ctx context.Context, w io.Writer, p *probe.Probe, log *slog.Logger, 
 		opt = new(*opt)
 	}
 	if opt.Delay <= 0 {
-		opt.Delay = defaultDelay
+		opt.Delay = DefaultDelay
 	}
 	if opt.PacketSize <= 0 {
-		opt.PacketSize = defaultPacketSize
+		opt.PacketSize = DefaultPacketSize
 	}
 	if opt.Buffer <= 0 {
 		opt.Buffer = computeBufferSize(opt.Delay, opt.PacketSize, 2_500_000_000, 5000) // 2.5 gbit/s, 5k pps
