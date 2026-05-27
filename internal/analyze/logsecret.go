@@ -75,7 +75,8 @@ func LogSecret(ctx context.Context, ef *elf.File) (fileOffset uint64, warn []err
 // LogSecretMiniDebug finds ssl_log_secret by looking for a compatible symbol in
 // the MiniDebugInfo. This works on most dynamic libssl.so binaries, including
 // the one shipped in Android (system or APEX) and the one in the
-// org.conscrypt:conscrypt-android library.
+// org.conscrypt:conscrypt-android and org.chromium.net:cronet-embedded
+// libraries.
 func LogSecretMiniDebug(ef *elf.File) (fileOffset uint64, err error) {
 	if err := checkARM64(ef); err != nil {
 		return 0, err
