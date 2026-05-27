@@ -23,8 +23,8 @@ struct config {
 struct event {
 	__u64 timestamp;
 	__u32 pid;
-#ifdef NOREAD
 	__u32 _pad;
+#ifdef NOREAD
 	__u64 label_ptr;
 	__u64 secret_ptr;
 	__s64 secret_len;

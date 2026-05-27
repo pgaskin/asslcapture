@@ -32,6 +32,7 @@ type probeEvent struct {
 	_         structs.HostLayout
 	Timestamp uint64
 	PID       uint32
+	_         uint32
 
 	DebugLine int64
 	DebugRet  int64
@@ -47,6 +48,7 @@ type probeNoReadEvent struct {
 	_         structs.HostLayout
 	Timestamp uint64
 	PID       uint32
+	_         uint32
 
 	LabelPtr  uint64
 	SecretPtr uint64
