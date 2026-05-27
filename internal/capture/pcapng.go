@@ -183,6 +183,14 @@ func PcapNG(ctx context.Context, w io.Writer, p *probe.Probe, log *slog.Logger, 
 	go func() {
 		defer close(keylogCh)
 		for event, dropped := range p.Events(ctx) {
+			if event != nil {
+				if event.Error != nil {
+					log.Warn("probe error", "pid", event.PID, "delay", event.Delay, "error", event.Error)
+				}
+				if event.Delay > time.Millisecond*5 {
+					log.Warn("slow probe event", "pid", event.PID, "delay", event.Delay)
+				}
+			}
 			select {
 			case keylogCh <- keylogMsg{event, dropped}:
 			case <-shutdownCtx.Done():

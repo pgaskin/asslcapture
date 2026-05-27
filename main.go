@@ -123,6 +123,11 @@ func main() {
 		config.CaptureOutput = "-"
 	}
 
+	if config.ProbeNoRead {
+		// TODO: can we avoid this by also adding a syscall probe or something like that?
+		slog.Warn("using noread probe, secret reading will be racy and may drop or return incorrect secrets")
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

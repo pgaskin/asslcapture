@@ -89,14 +89,7 @@ func newNoreadEvent(e *probeNoReadEvent, cfg configKey) (ev *Event) {
 	}()
 	pid := int(e.PID)
 
-	labelBuf := make([]byte, probeLabelMax)
-	if err := procVMRead(pid, e.LabelPtr, labelBuf); err != nil {
-		return &Event{Delay: monotonicTimeSince(e.Timestamp), Error: fmt.Errorf("read label (pid=%d ptr=%#x): %w", pid, e.LabelPtr, err)}
-	}
-	if i := bytes.IndexByte(labelBuf, 0); i >= 0 {
-		labelBuf = labelBuf[:i]
-	}
-
+	// read the secret first, it's the most time-sensitive
 	secretLen := int(e.SecretLen)
 	if secretLen < 0 || secretLen > probeSecretMax {
 		secretLen = probeSecretMax
@@ -105,6 +98,11 @@ func newNoreadEvent(e *probeNoReadEvent, cfg configKey) (ev *Event) {
 	if secretLen > 0 {
 		if err := procVMRead(pid, untagPtr(e.SecretPtr), secret); err != nil {
 			return &Event{Delay: monotonicTimeSince(e.Timestamp), Error: fmt.Errorf("read secret (pid=%d ptr=%#x): %w", pid, e.SecretPtr, err)}
+		}
+		if !slices.ContainsFunc(secret, func(b byte) bool {
+			return b != 0
+		}) {
+			return &Event{Delay: monotonicTimeSince(e.Timestamp), Error: fmt.Errorf("read secret (pid=%d ptr=%#x): all zeroes (we were probably too slow)", pid, e.SecretPtr)}
 		}
 	}
 
@@ -117,6 +115,14 @@ func newNoreadEvent(e *probeNoReadEvent, cfg configKey) (ev *Event) {
 	clientRandom := make([]byte, probeClientRandomSize)
 	if err := procVMRead(pid, untagPtr(s3Ptr)+uint64(cfg.cr), clientRandom); err != nil {
 		return &Event{Delay: monotonicTimeSince(e.Timestamp), Error: fmt.Errorf("read client_random (pid=%d s3=%#x off=%d): %w", pid, s3Ptr, cfg.cr, err)}
+	}
+
+	labelBuf := make([]byte, probeLabelMax)
+	if err := procVMRead(pid, e.LabelPtr, labelBuf); err != nil {
+		return &Event{Delay: monotonicTimeSince(e.Timestamp), Error: fmt.Errorf("read label (pid=%d ptr=%#x): %w", pid, e.LabelPtr, err)}
+	}
+	if i := bytes.IndexByte(labelBuf, 0); i >= 0 {
+		labelBuf = labelBuf[:i]
 	}
 
 	return &Event{

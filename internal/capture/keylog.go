@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pgaskin/asslcapture/internal/probe"
 )
@@ -57,6 +58,14 @@ func Keylog(ctx context.Context, w io.Writer, p *probe.Probe, log *slog.Logger) 
 			}
 		}
 		if event != nil {
+			if event.Error != nil {
+				if event.Error != nil {
+					log.Warn("probe error", "pid", event.PID, "delay", event.Delay, "error", event.Error)
+				}
+				if event.Delay > time.Millisecond*5 {
+					log.Warn("slow probe event", "pid", event.PID, "delay", event.Delay)
+				}
+			}
 			if _, err := bw.Write(AppendKeylogEvent(bw.AvailableBuffer(), event)); err != nil {
 				return fmt.Errorf("write keylog: %w", err)
 			}
