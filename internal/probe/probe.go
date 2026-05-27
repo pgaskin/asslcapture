@@ -374,8 +374,15 @@ func (p *Probe) instanceLocked(cfg configKey) (*probeInstance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load bpf: parse elf: %w", err)
 	}
-	col, err := ebpf.NewCollection(spec)
+	col, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{
+		Programs: ebpf.ProgramOptions{
+			LogLevel: ebpf.LogLevelBranch,
+		},
+	})
 	if err != nil {
+		if ve, ok := errors.AsType[*ebpf.VerifierError](err); ok {
+			return nil, fmt.Errorf("load bpf: collection: %w\nverifier log:\n%+v", err, ve)
+		}
 		return nil, fmt.Errorf("load bpf: collection: %w", err)
 	}
 	prog, ok := col.Programs["uprobe_ssl_log_secret"]
