@@ -262,7 +262,6 @@ func New(opts *Options) (*Probe, error) {
 		done:         make(chan struct{}),
 		fatalCh:      make(chan struct{}),
 	}
-	p.wg.Add(2)
 	p.wg.Go(p.handleEvents)
 	p.wg.Go(p.handleHotplug)
 	return p, nil
