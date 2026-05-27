@@ -19,8 +19,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -125,27 +123,45 @@ func main() {
 		config.CaptureOutput = "-"
 	}
 
-	var (
-		pr       *probe.Probe
-		attachMu sync.Mutex
-		noAttach atomic.Bool
-	)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if config.ExitEOF {
+		go func() {
+			if _, err := io.Copy(io.Discard, os.Stdin); err == nil {
+				slog.Info("stdin closed, stopping")
+				stop()
+			}
+		}()
+	}
+
+	context.AfterFunc(ctx, func() {
+		slog.Info("stopping gracefully (signal again to force exit)")
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+		<-ch
+		slog.Error("exiting immediately")
+		os.Exit(1)
+	})
+
+	var pr *probe.Probe
 
 	sc, err := scanner.New(&scanner.Options{
 		Logger:  slog.Default(),
 		Cache:   config.Cache,
 		Workers: config.ScanWorkers,
 		OnError: func(err error) {
+			if ctx.Err() != nil {
+				return
+			}
 			slog.Error("scan error", "error", err)
 		},
 		OnResult: func(name, path string, elfOffset uint64, offsets scanner.Offsets) {
-			if pr == nil || noAttach.Load() {
+			if pr == nil {
 				return
 			}
-			attachMu.Lock()
-			defer attachMu.Unlock()
-			if noAttach.Load() {
-				return // shutdown beat us to acquiring attachMu
+			if ctx.Err() != nil {
+				return
 			}
 			slog.Info("attaching probe", "name", name)
 			if err := pr.Attach(path, int64(elfOffset+offsets.SSLLogSecret), offsets.S3, offsets.ClientRandom); err != nil {
@@ -190,27 +206,6 @@ func main() {
 		output = f
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	if config.ExitEOF {
-		go func() {
-			if _, err := io.Copy(io.Discard, os.Stdin); err == nil {
-				slog.Info("stdin closed, stopping")
-				stop()
-			}
-		}()
-	}
-
-	context.AfterFunc(ctx, func() {
-		slog.Info("stopping gracefully (signal again to force exit)")
-		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
-		<-ch
-		slog.Error("exiting immediately")
-		os.Exit(1)
-	})
-
 	scanDone := make(chan struct{})
 	go func() {
 		defer close(scanDone)
@@ -252,6 +247,9 @@ func main() {
 			slog.Info("scan done", scanInfoAttrs(info)...)
 		}
 
+		if ctx.Err() != nil {
+			return
+		}
 		slog.Info("all scans complete")
 	}()
 
@@ -287,10 +285,7 @@ func main() {
 	}
 
 	slog.Info("shutting down")
-
-	attachMu.Lock()
-	noAttach.Store(true)
-	attachMu.Unlock()
+	stop()
 
 	if outputFile != nil {
 		slog.Info("closing output")
