@@ -3,7 +3,12 @@
 
 package scanner
 
-import "github.com/pgaskin/asslcapture/internal/kvlines"
+import (
+	"errors"
+	"os"
+
+	"github.com/pgaskin/asslcapture/internal/kvlines"
+)
 
 type Cache struct {
 	Magic   kvlines.Magic             `kv:"asslcapture cache v1"` // changed whenever we add/remove required fields or make changes requiring re-analysis
@@ -29,6 +34,40 @@ type Offsets struct {
 	SSLLogSecret uint64       `kv:"fn"`   // ssl_log_secret elf file offset
 	S3           int          `kv:"s3"`   // s3 struct field offset
 	ClientRandom int          `kv:"cr"`   // client_random struct field offset
+}
+
+type BadCacheVersionError struct {
+	msg string
+}
+
+func (e *BadCacheVersionError) Error() string {
+	return e.msg
+}
+
+func ReadCache(name string) (*Cache, error) {
+	buf, err := os.ReadFile(name)
+	if err != nil {
+		return nil, err
+	}
+	var cache Cache
+	if err := kvlines.Unmarshal(buf, &cache); err != nil {
+		if err, ok := errors.AsType[*kvlines.BadMagicError](err); ok {
+			return nil, &BadCacheVersionError{err.Error()}
+		}
+		return nil, err
+	}
+	return &cache, nil
+}
+
+func WriteCache(name string, cache *Cache, perm os.FileMode) error {
+	buf, err := kvlines.Marshal(cache)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(name, buf, perm); err != nil {
+		return err
+	}
+	return nil
 }
 
 func init() {
