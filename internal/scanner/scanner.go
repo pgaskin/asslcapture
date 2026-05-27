@@ -40,6 +40,7 @@ var apkDirs = [...]string{
 
 // libDirs are the standard Android library directories.
 var libDirs = [...]string{
+	"/apex",
 	"/system/lib",
 	"/system/lib64",
 	"/system_ext/lib",
@@ -56,7 +57,7 @@ var libDirs = [...]string{
 
 // bsslNameRe matches filenames which are likely to be or contain statically
 // linked BoringSSL.
-var bsslNameRe = regexp.MustCompile(`(libssl|cronet|libchrome|webviewchrom)[^/]+\.so[0-9.]*$`)
+var bsslNameRe = regexp.MustCompile(`(libssl|cronet|libchrome|webviewchrom)[^/]*\.so[0-9.]*$`)
 
 // soRe matches shared-library filenames: a ".so" suffix, optionally followed by
 // version digits/dots (though these are uncommon on Android) (e.g.,
@@ -99,8 +100,11 @@ type Options struct {
 	Workers int
 
 	// OnResult, if not nil, is called synchronously when a library has been
-	// scanned.
-	OnResult func(name string, offsets Offsets)
+	// scanned. name is the requested name (which may contain "!/" for zip
+	// entries), path is the real filesystem path, and elfOffset is the offset
+	// of the elf within that file (0 for non-zips). The absolute file offset of
+	// ssl_log_secret is elfOffset + offsets.SSLLogSecret.
+	OnResult func(name, path string, elfOffset uint64, offsets Offsets)
 
 	// OnError, if not nil, is called synchronously when the scanner encounters
 	// an error. It is also called when a cache write fails.
@@ -663,7 +667,7 @@ func (s *Scanner) processTask(task *fileTask) {
 		task.info.Offset.Total++
 		task.info.Offset.Cached++
 		if s.opts.OnResult != nil {
-			s.opts.OnResult(task.key.name, *existingOffsets)
+			s.opts.OnResult(task.key.name, existing.Path, existing.Offset, *existingOffsets)
 		}
 		return
 	}
@@ -783,7 +787,7 @@ func (s *Scanner) processTask(task *fileTask) {
 	s.mu.Unlock()
 
 	if s.opts.OnResult != nil {
-		s.opts.OnResult(task.key.name, offsets)
+		s.opts.OnResult(task.key.name, realPath, uint64(ef.Offset()), offsets)
 	}
 }
 
