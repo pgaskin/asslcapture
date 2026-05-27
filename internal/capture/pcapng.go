@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -151,10 +152,21 @@ func PcapNG(ctx context.Context, w io.Writer, p *probe.Probe, log *slog.Logger, 
 		return fmt.Errorf("write pcapng: %w", err)
 	}
 
-	// stop closes the afpacket socket (unblocking read) for an intentional shutdown
+	// stop closes the afpacket socket (unblocking read) for an intentional
+	// shutdown
 	shutdownCtx, shutdown := context.WithCancel(context.Background())
+	var (
+		stopMu     sync.Mutex
+		stopClosed bool
+	)
 	stop := func() {
 		shutdown()
+		stopMu.Lock()
+		defer stopMu.Unlock()
+		if stopClosed {
+			return
+		}
+		stopClosed = true
 		handle.Close()
 	}
 	defer stop()
@@ -207,8 +219,16 @@ func PcapNG(ctx context.Context, w io.Writer, p *probe.Probe, log *slog.Logger, 
 				}
 				return err // fatal
 			}
+			// raw points into the afpacket mmap; copy it out before stop() can
+			// munmap the buffer via handle.Close().
+			stopMu.Lock()
+			if stopClosed {
+				stopMu.Unlock()
+				return nil
+			}
 			data := slab.alloc(len(raw))
 			copy(data, raw)
+			stopMu.Unlock()
 			select {
 			case pktCh <- capPkt{ci: ci, data: data}:
 			case <-shutdownCtx.Done():

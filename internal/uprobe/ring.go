@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 
@@ -24,6 +25,7 @@ import (
 // Ring is a per-CPU mmap'd perf ring buffer for reading BPF_PERF_EVENT_OUTPUT
 // records.
 type Ring struct {
+	mu   sync.Mutex // serializes Close with ReadRecord touching the mmap
 	fd   int
 	tmp  []byte
 	buf  []byte                  // mmap'd metadata, data pages
@@ -69,6 +71,8 @@ func (r *Ring) Fd() int {
 }
 
 func (r *Ring) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.fd == -1 {
 		return os.ErrInvalid
 	}
@@ -86,6 +90,11 @@ func (r *Ring) Close() error {
 // skipped. Lost is set to the number of dropped events. If ok is false, the
 // ring buffer is empty.
 func (r *Ring) ReadRecord() (data []byte, lost uint64, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.fd == -1 {
+		return nil, 0, false
+	}
 	head := atomic.LoadUint64(&r.meta.Data_head)
 	tail := atomic.LoadUint64(&r.meta.Data_tail)
 	if tail >= head {
