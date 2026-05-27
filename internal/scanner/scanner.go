@@ -110,7 +110,7 @@ type Options struct {
 	OnResult func(name, path string, elfOffset uint64, offsets Offsets)
 
 	// OnError, if not nil, is called synchronously when the scanner encounters
-	// an error. It is also called when a cache write fails.
+	// an error.
 	OnError func(err error)
 }
 
@@ -216,7 +216,14 @@ func New(opts *Options) (*Scanner, error) {
 			if !errors.Is(err, os.ErrNotExist) {
 				return nil, err
 			}
+			if err := WriteCache(opts.Cache, &Cache{}, 0644); err != nil {
+				opts.Logger.Warn("failed to create new cache, continuing anyways", "path", opts.Cache, "error", err)
+				// ignore
+			} else {
+				opts.Logger.Info("created new cache", "path", opts.Cache)
+			}
 		} else {
+			opts.Logger.Info("read cache", "path", opts.Cache)
 			cache = c
 		}
 	}
@@ -812,10 +819,10 @@ func (s *Scanner) saveCache() error {
 		return err
 	}
 	if err := os.WriteFile(s.opts.Cache, buf, 0644); err != nil {
-		err = fmt.Errorf("write cache: %w", err)
-		s.callError(err)
+		s.log.Warn("failed to save cache, continuing anyways", "path", s.opts.Cache, "error", err)
 		return err
 	}
+	s.log.Info("saved cache", "path", s.opts.Cache)
 	return nil
 }
 
