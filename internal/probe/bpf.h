@@ -25,10 +25,10 @@ struct pt_regs;
 #define __type(name, val) typeof(val) *name
 
 // bpf helpers
-static void *(* const bpf_map_lookup_elem)(void *map, const void *key) = (void *(*)(void *, const void *)) 1;
-static long (* const bpf_perf_event_output)(void *ctx, void *map, __u64 flags, void *data, __u64 size) = (long (*)(void *, void *, __u64, void *, __u64)) 25;
-static long (* const bpf_probe_read_user)(void *dst, __u32 size, const void *unsafe_ptr) = (long (*)(void *, __u32, const void *)) 112;
-static long (* const bpf_probe_read_user_str)(void *dst, __u32 size, const void *unsafe_ptr) = (long (*)(void *, __u32, const void *)) 114;
+static void *(* const bpf_map_lookup_elem)(void *map, const void *key) = (void *(*)(void *, const void *)) 1; // 3.18
+static long (* const bpf_perf_event_output)(void *ctx, void *map, __u64 flags, void *data, __u64 size) = (long (*)(void *, void *, __u64, void *, __u64)) 25; // 4.4
+static long (* const bpf_probe_read)(void *dst, __u32 size, const void *unsafe_ptr) = (long (*)(void *, __u32, const void *)) 4; // 4.1
+static long (* const bpf_probe_read_str)(void *dst, __u32 size, const void *unsafe_ptr) = (long (*)(void *, __u32, const void *)) 45; // 4.11
 
 // bpf utils
 #define SEC(name) __attribute__((section(name), used))

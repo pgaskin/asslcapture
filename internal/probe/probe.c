@@ -65,7 +65,7 @@ int uprobe_ssl_log_secret(struct pt_regs *ctx) {
 		goto emit;
 	}
 
-	if ((ev.debug_ret = bpf_probe_read_user_str(ev.label, sizeof(ev.label), label)) < 0) { // label is in .rodata, no tagging
+	if ((ev.debug_ret = bpf_probe_read_str(ev.label, sizeof(ev.label), label)) < 0) { // label is in .rodata, no tagging
 		ev.debug_ptr = (__s64) label;
 		ev.debug_line = __LINE__;
 		goto emit;
@@ -73,20 +73,17 @@ int uprobe_ssl_log_secret(struct pt_regs *ctx) {
 
 	ev.secret_len = secret_len;
 
-	if (secret_len < 0) {
-		secret_len = 0;
-	}
-	if (secret_len > SECRET_MAX) {
-		secret_len = SECRET_MAX;
-	}
-	if (secret_len > 0 && (ev.debug_ret = bpf_probe_read_user(ev.secret, secret_len, UNTAG(secret))) < 0) {
+	// this may return -EFAULT if it goes out of bounds, but it's unlikely given
+	// the memory layout, and the verifier in older kernels can't handle a
+	// dynamic range check properly
+	if ((ev.debug_ret = bpf_probe_read(ev.secret, sizeof(ev.secret), UNTAG(secret))) < 0) {
 		ev.debug_ptr = (__s64) secret;
 		ev.debug_line = __LINE__;
 		goto emit;
 	}
 
 	void *s3 = NULL;
-	if ((ev.debug_ret = bpf_probe_read_user(&s3, sizeof(s3), (__u8 *)UNTAG(ssl) + cfg->s3)) < 0) {
+	if ((ev.debug_ret = bpf_probe_read(&s3, sizeof(s3), (__u8 *)UNTAG(ssl) + cfg->s3)) < 0) {
 		ev.debug_ptr = (__s64) (__u8 *)ssl + cfg->s3;
 		ev.debug_line = __LINE__;
 		goto emit;
@@ -95,7 +92,7 @@ int uprobe_ssl_log_secret(struct pt_regs *ctx) {
 		ev.debug_line = __LINE__;
 		goto emit;
 	}
-	if ((ev.debug_ret = bpf_probe_read_user(ev.client_random, sizeof(ev.client_random), (__u8 *)UNTAG(s3) + cfg->client_random)) < 0) {
+	if ((ev.debug_ret = bpf_probe_read(ev.client_random, sizeof(ev.client_random), (__u8 *)UNTAG(s3) + cfg->client_random)) < 0) {
 		ev.debug_ptr = (__s64) (__u8 *)s3 + cfg->client_random;
 		ev.debug_line = __LINE__;
 		goto emit;
