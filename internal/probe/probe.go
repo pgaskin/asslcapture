@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"os"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -81,7 +82,8 @@ type Options struct {
 // goroutine-safe.
 type Probe struct {
 	pmu     uint32
-	cpus    int // number of possible CPUs
+	tracefs bool // use tracefs instead of perf
+	cpus    int  // number of possible CPUs
 	hotplug *uprobe.CPUHotplug
 
 	mu sync.Mutex
@@ -138,8 +140,15 @@ func New(opts *Options) (*Probe, error) {
 	}
 
 	pmu, err := uprobe.PMUType()
+	var tracefs bool
 	if err != nil {
-		return nil, err
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		tracefs = true
+		if err := uprobe.CleanStaleTracingUprobes("asslcapture"); err != nil {
+			return nil, fmt.Errorf("clean stale tracing uprobes: %w", err)
+		}
 	}
 
 	cpus, err := uprobe.PossibleCPUs()
@@ -172,6 +181,7 @@ func New(opts *Options) (*Probe, error) {
 		cpus:      cpus,
 		hotplug:   hotplug,
 		pmu:       pmu,
+		tracefs:   tracefs,
 		instances: make(map[configKey]*probeInstance),
 		uprobes:   make(map[attachKey]*uprobe.Event),
 		epollFd:   epollFd,
@@ -457,7 +467,7 @@ func (p *Probe) uprobeLocked(pi *probeInstance, spec attachSpec) error {
 		return nil // already attached
 	}
 
-	evt, err := uprobe.Open(p.pmu, uprobe.Target{
+	target := uprobe.Target{
 		Path:   spec.path,
 		Offset: spec.offset,
 		PID:    -1,
@@ -465,7 +475,14 @@ func (p *Probe) uprobeLocked(pi *probeInstance, spec attachSpec) error {
 		// pinning doesn't affect uprobes (we still need the per-cpu buffers
 		// though)
 		CPU: 0,
-	})
+	}
+	var evt *uprobe.Event
+	var err error
+	if p.tracefs {
+		evt, err = uprobe.OpenTracing("asslcapture", target)
+	} else {
+		evt, err = uprobe.Open(p.pmu, target)
+	}
 	if err != nil {
 		return fmt.Errorf("open uprobe %s+%#x: %w", spec.path, spec.offset, err)
 	}
