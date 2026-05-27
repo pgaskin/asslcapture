@@ -27,8 +27,14 @@ struct pt_regs;
 // bpf helpers
 static void *(* const bpf_map_lookup_elem)(void *map, const void *key) = (void *(*)(void *, const void *)) 1; // 3.18
 static long (* const bpf_perf_event_output)(void *ctx, void *map, __u64 flags, void *data, __u64 size) = (long (*)(void *, void *, __u64, void *, __u64)) 25; // 4.4
-static long (* const bpf_probe_read)(void *dst, __u32 size, const void *unsafe_ptr) = (long (*)(void *, __u32, const void *)) 4; // 4.1
-static long (* const bpf_probe_read_str)(void *dst, __u32 size, const void *unsafe_ptr) = (long (*)(void *, __u32, const void *)) 45; // 4.11
+
+// https://git.kernel.org/pub/scm/linux/kernel/git/bpf/bpf-next.git/commit/?id=6ae08ae3dea2cfa03dd3665a3c8475c2d429ef47
+// https://github.com/iovisor/bcc/issues/3094
+// https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md
+// https://lkml.org/lkml/2019/2/28/1369
+// https://github.com/iovisor/bcc/issues/3783
+static long (* const bpf_probe_read_user)(void *dst, __u32 size, const void *unsafe_ptr) = (long (*)(void *, __u32, const void *)) 112; // 5.5 (but android kernels have it backported due to an arm64 bug in the non-_user variant)
+static long (* const bpf_probe_read_user_str)(void *dst, __u32 size, const void *unsafe_ptr) = (long (*)(void *, __u32, const void *)) 114; // same
 
 // bpf utils
 #define SEC(name) __attribute__((section(name), used))
