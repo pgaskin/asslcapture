@@ -21,17 +21,9 @@ See [here](./docs/vs-ecapture.md) for a comparison to ecapture.
 - Wireshark [extcap](https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html) integration?
 - Packet capture via a TC filter (so we get process info).
 
-### Library locations
+### Documentation
 
-On Android, BoringSSL is usually wrapped with conscrypt (for usage from Java), which may come from:
-
-- Loadable GMS module (before Android 4.1).
-- The system conscrypt (before Android 10).
-- Mainline conscrypt APEX (Android 10+).
-- Apps (via `org.conscrypt:conscrypt-android`).
-
-Some apps use BoringSSL natively by statically linking it, including:
-
-- Chromium/Chrome.
-
-If BoringSSL cannot be detected, keys will not be logged for connections from that application.
+- [Build](./docs/build.md)
+- [Troubleshooting](./docs/troubleshooting.md)
+- [Usage](./docs/usage.md)
+- [Comparison to ecapture](./docs/vs-ecapture.md)
