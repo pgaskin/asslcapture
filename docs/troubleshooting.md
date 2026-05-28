@@ -83,3 +83,20 @@
 
 - **duplicate secrets emitted** \
   This may happen if libraries are symlinked or hardlinked, and shouldn't cause any other issues.
+
+### Library locations
+
+On Android, BoringSSL is usually wrapped with conscrypt (for usage from Java), which may come from:
+
+- Loadable GMS module (before Android 4.1).
+- The system conscrypt (before Android 10).
+- Mainline conscrypt APEX (Android 10+).
+- Apps (via `org.conscrypt:conscrypt-android`).
+
+Some apps use BoringSSL natively by statically linking it, including:
+
+- Chromium/Chrome.
+- Google Apps.
+- Other apps (via `org.chromium.net:cronet-embedded`).
+
+If BoringSSL cannot be detected, keys will not be logged for connections from that application.

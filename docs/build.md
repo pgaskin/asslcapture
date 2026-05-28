@@ -28,3 +28,14 @@ To test the analysis on a library:
 ```bash
 go run ./internal/analyze/main.go libssl.so
 ```
+
+For development in vscode, you'll probably want this in your workspace settings:
+
+```json
+{
+    "go.toolsEnvVars": {
+        "GOOS": "linux",
+        "GOARCH": "arm64"
+    }
+}
+```
