@@ -345,3 +345,11 @@ func scanInfoAttrs(info scanner.ScanInfo) []any {
 		),
 	}
 }
+
+// TODO: log process name the first time we see a pid?
+// TODO: log discovered libs in scan-only mode
+// TODO: more debug logs, especially for the probe
+
+// TODO: wireshark extcap binary with adb and su/shizuku integration?
+
+// TODO: specific pid ptrace attach mode for --probe-noread (to make it less flaky)?
