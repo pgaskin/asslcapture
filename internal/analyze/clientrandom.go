@@ -107,14 +107,16 @@ func ClientRandom(ef *elf.File, offset uint64) (s3, clientRandom int, err error)
 					//
 					//	add xP, xN, #cr_off
 					//	... up to ~8 instructions
-					//	ldrb w?, [xP, X?]
+					//	ldrb w?, [xP, X?] or ldrb w?, [xP] or ldrb w?, [xP, #imm]
 					for k := j + 1; k < len(insts) && k <= j+8; k++ {
 						kk := insts[k]
 						if kk.Op == 0 || kk.Op != arm64asm.LDRB {
 							continue
 						}
-						base, _, extOK := memExtendVal(kk.Args[1])
-						if extOK && base == addDst {
+						if base, _, ok := memExtendVal(kk.Args[1]); ok && base == addDst {
+							return int(s3Off), int(crVal), nil
+						}
+						if base, _, ok := ldrImmVal(kk.Args[1]); ok && base == addDst {
 							return int(s3Off), int(crVal), nil
 						}
 					}
