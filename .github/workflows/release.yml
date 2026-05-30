@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'new/existing tag name'
+        required: true
+      target_commitish:
+        description: 'target if new tag'
+        default: master
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    name: asslcapture
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+    - run: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v -trimpath -o asslcapture github.com/pgaskin/asslcapture
+    - uses: actions/attest-build-provenance@v3
+      with:
+        subject-path: |
+          asslcapture
+    - name: Create draft release
+      uses: actions/github-script@v8
+      id: draft_release
+      with:
+        script: |
+          const {data: {id: id}} = await github.rest.repos.createRelease({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            tag_name: context.payload.inputs.tag_name,
+            target_commitish: context.payload.inputs.target_commitish,
+            name: context.payload.inputs.tag_name,
+            draft: true,
+          })
+          core.setOutput('id', id)
+    - name: Upload release asset
+      uses: actions/github-script@v8
+      with:
+        retries: 3 # note: this applies to individual github.rest calls, not the entire script
+        script: |
+          const {readFile} = require('fs').promises
+          await github.rest.repos.uploadReleaseAsset({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            release_id: '${{steps.draft_release.outputs.id}}',
+            name: 'asslcapture',
+            data: await readFile(`asslcapture`),
+          })
