@@ -32,6 +32,8 @@ PROBE OPTIONS
       --probe-buffer int  number of uprobe events to buffer before dropping (default: 64)
   -R, --probe-noread      use process_vm_readv to read from userspace instead of bpf_probe_read_user (may work better on
                           old kernels, but slightly racy)
+  -P, --probe-ptrace pid  use ptrace instead of ebpf, attaching to the specified pids (comma-separated, or multiple)
+                          (experimental)
 
 CAPTURE OPTIONS
   -m, --capture mode                   capture mode (if not specified, only scans then exits) (keylog, pcapng)

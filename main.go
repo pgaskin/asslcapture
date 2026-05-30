@@ -27,6 +27,7 @@ import (
 	"github.com/pgaskin/asslcapture/internal/pflagx"
 	"github.com/pgaskin/asslcapture/internal/probe"
 	"github.com/pgaskin/asslcapture/internal/probe/bpfprobe"
+	"github.com/pgaskin/asslcapture/internal/probe/pprobe"
 	"github.com/pgaskin/asslcapture/internal/scanner"
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
@@ -48,8 +49,9 @@ var config = struct {
 	ScanLibsApp bool     `group:"scan" long:"scan-libs-app" doc:"scan for libraries in standard app dirs"`
 	ScanWorkers int      `group:"scan" long:"scan-workers" doc:"number of concurrent analyses to run (default: GOMAXPROCS)"`
 
-	ProbeBuffer int  `group:"probe" long:"probe-buffer" doc:"number of uprobe events to buffer before dropping"`
-	ProbeNoRead bool `group:"probe" short:"R" long:"probe-noread" doc:"use process_vm_readv to read from userspace instead of bpf_probe_read_user (may work better on old kernels, but slightly racy)"`
+	ProbeBuffer int   `group:"probe" long:"probe-buffer" doc:"number of uprobe events to buffer before dropping"`
+	ProbeNoRead bool  `group:"probe" short:"R" long:"probe-noread" doc:"use process_vm_readv to read from userspace instead of bpf_probe_read_user (may work better on old kernels, but slightly racy)"`
+	ProbePtrace []int `group:"probe" short:"P" long:"probe-ptrace" metavar:"pid" doc:"use ptrace instead of ebpf, attaching to the specified pids (comma-separated, or multiple) (experimental)"`
 
 	Capture              string        `group:"capture" short:"m" long:"capture" metavar:"mode" doc:"capture mode (if not specified, only scans then exits) (keylog, pcapng)"`
 	CaptureOutput        string        `group:"capture" short:"o" long:"capture-output" metavar:"filename" doc:"output filename (default stdout)"`
@@ -124,8 +126,7 @@ func main() {
 		config.CaptureOutput = "-"
 	}
 
-	if config.ProbeNoRead {
-		// TODO: can we avoid this by also adding a syscall probe or something like that?
+	if config.ProbeNoRead && len(config.ProbePtrace) == 0 {
 		slog.Warn("using noread probe, secret reading will be racy and may drop or return incorrect secrets")
 	}
 
@@ -184,23 +185,36 @@ func main() {
 	}
 
 	if config.Capture != "" {
-		if config.ProbeNoRead {
-			slog.Info("using ebpf probe (noread)")
-		} else {
-			slog.Info("using ebpf probe")
-		}
-		p, err := bpfprobe.New(&bpfprobe.Options{
-			BufferSize: config.ProbeBuffer,
-			NoRead:     config.ProbeNoRead,
-		})
-		if err != nil {
-			if !config.ProbeNoRead {
-				err = fmt.Errorf("%w (try --probe-noread)", err)
+		if len(config.ProbePtrace) > 0 {
+			slog.Info("using ptrace-based probe")
+			p, err := pprobe.New(&pprobe.Options{
+				PIDs:       config.ProbePtrace,
+				BufferSize: config.ProbeBuffer,
+			})
+			if err != nil {
+				slog.Error("initialize ptrace probe", "error", err)
+				os.Exit(1)
 			}
-			slog.Error("initialize probe", "error", err)
-			os.Exit(1)
+			pr = p
+		} else {
+			if config.ProbeNoRead {
+				slog.Info("using ebpf probe (noread)")
+			} else {
+				slog.Info("using ebpf probe")
+			}
+			p, err := bpfprobe.New(&bpfprobe.Options{
+				BufferSize: config.ProbeBuffer,
+				NoRead:     config.ProbeNoRead,
+			})
+			if err != nil {
+				if !config.ProbeNoRead {
+					err = fmt.Errorf("%w (try --probe-noread)", err)
+				}
+				slog.Error("initialize probe", "error", err)
+				os.Exit(1)
+			}
+			pr = p
 		}
-		pr = p
 	}
 
 	var (
@@ -319,7 +333,12 @@ func main() {
 	slog.Info("scanner closed")
 
 	if pr != nil {
-		slog.Info("closing probe")
+		switch pr.(type) {
+		case *pprobe.Probe:
+			slog.Info("closing probe, removing breakpoints")
+		default:
+			slog.Info("closing probe")
+		}
 		if err := pr.Close(); err != nil {
 			slog.Warn("close probe", "error", err)
 		}
@@ -357,5 +376,3 @@ func scanInfoAttrs(info scanner.ScanInfo) []any {
 // TODO: more debug logs, especially for the probe
 
 // TODO: wireshark extcap binary with adb and su/shizuku integration?
-
-// TODO: specific pid ptrace attach mode for --probe-noread (to make it less flaky)?

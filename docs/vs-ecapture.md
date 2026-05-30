@@ -27,3 +27,5 @@ And it doesn't have any of ecapture's problems:
 - Extremely complex and non-reproducible build process with host dependencies.
 - Unnecessary complexity due to supporting application-level protocol parsing, library-level stream capture, and non-TLS stuff.
 - Lots of duplicate code paths with subtle differences by output format (text, pcap, sslkeylog) and tls library, each with their own issues.
+
+Unlike ecapture, it also supports kernels without eBPF support using ptrace.

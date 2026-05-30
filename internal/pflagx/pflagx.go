@@ -62,6 +62,12 @@ func RegisterFlags(fs *pflag.FlagSet, cfg any) {
 			} else {
 				fs.IntVar(p, long, *p, doc)
 			}
+		case *[]int:
+			if short != "" {
+				fs.IntSliceVarP(p, long, short, *p, doc)
+			} else {
+				fs.IntSliceVar(p, long, *p, doc)
+			}
 		}
 
 		if group := field.Tag.Get("group"); group != "" {
@@ -174,7 +180,7 @@ func defaultSuffix(f *pflag.Flag) string {
 			return ""
 		}
 		return " (default: " + f.DefValue + ")"
-	case "stringArray", "stringSlice":
+	case "stringArray", "stringSlice", "intSlice":
 		if f.DefValue == "[]" || f.DefValue == "" {
 			return ""
 		}

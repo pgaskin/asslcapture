@@ -13,7 +13,7 @@ See [here](./docs/vs-ecapture.md) for a comparison to ecapture.
 - Readable, non-vibecoded, and simple code.
 - Focus on ARM64. ARMv7 support might be added later.
 - Explicit focus on Android with boringssl and a non-ancient kernel version.
-- Partial support for older kernels.
+- Partial support for older kernels using ptrace or a more limited version of the probe.
 - Wide boringssl version compatibility with automated offset analysis.
 - Other native TLS libraries which apps may embed are out-of-scope (for now at least) (this is pretty rare, though).
 - Only basic output formats, no application protocol parsing for simplicity (use [Wireshark](https://www.wireshark.org/) or something like [pcapng_to_har](https://pts-project.org/pcapng-utils/) if you want to look at HTTP traffic):
