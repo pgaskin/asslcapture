@@ -46,7 +46,7 @@ func AppendKeylogDroppedEvent(b []byte, dropped int) []byte {
 
 // Keylog reads keylog messages from events and writes them to w in NSS keylog
 // format until ctx is canceled or events is closed.
-func Keylog(ctx context.Context, w io.Writer, p *probe.Probe, log *slog.Logger) error {
+func Keylog(ctx context.Context, w io.Writer, p probe.Probe, log *slog.Logger) error {
 	bw := bufio.NewWriter(w)
 	for event, dropped := range p.Events(ctx) {
 		if dropped > 0 {

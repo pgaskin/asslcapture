@@ -3,7 +3,7 @@
 // SPDX-FileCopyrightText: 2026 Patrick Gaskin
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package probe
+package bpfprobe
 
 import (
 	_ "embed"
@@ -54,4 +54,8 @@ type probeNoReadEvent struct {
 	SecretPtr uint64
 	SecretLen int64
 	SSLPtr    uint64
+}
+
+func untag(p uint64) uint64 {
+	return p &^ (uint64(0xFF) << 56)
 }

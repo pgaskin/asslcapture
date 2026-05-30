@@ -26,6 +26,7 @@ import (
 	"github.com/pgaskin/asslcapture/internal/capture"
 	"github.com/pgaskin/asslcapture/internal/pflagx"
 	"github.com/pgaskin/asslcapture/internal/probe"
+	"github.com/pgaskin/asslcapture/internal/probe/bpfprobe"
 	"github.com/pgaskin/asslcapture/internal/scanner"
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
@@ -149,7 +150,7 @@ func main() {
 		os.Exit(1)
 	})
 
-	var pr *probe.Probe
+	var pr probe.Probe
 
 	sc, err := scanner.New(&scanner.Options{
 		Logger:  slog.Default(),
@@ -183,7 +184,12 @@ func main() {
 	}
 
 	if config.Capture != "" {
-		p, err := probe.New(&probe.Options{
+		if config.ProbeNoRead {
+			slog.Info("using ebpf probe (noread)")
+		} else {
+			slog.Info("using ebpf probe")
+		}
+		p, err := bpfprobe.New(&bpfprobe.Options{
 			BufferSize: config.ProbeBuffer,
 			NoRead:     config.ProbeNoRead,
 		})

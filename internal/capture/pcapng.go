@@ -100,7 +100,7 @@ func computeBufferSize(delay time.Duration, packetSize, peakBitsPerSecond, peakP
 // pcapng format, and interleaves TLS keylog secrets from events. Runs until ctx
 // is canceled, events is closed, or a fatal error occurs. On cancellation,
 // buffered packets are flushed before returning. Drop warnings are logged via log.
-func PcapNG(ctx context.Context, w io.Writer, p *probe.Probe, log *slog.Logger, opt *Options) error {
+func PcapNG(ctx context.Context, w io.Writer, p probe.Probe, log *slog.Logger, opt *Options) error {
 	if opt == nil {
 		opt = new(Options)
 	} else {
