@@ -19,7 +19,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"syscall"
 	"time"
 
 	"github.com/lmittmann/tint"
@@ -30,6 +29,7 @@ import (
 	"github.com/pgaskin/asslcapture/internal/probe/pprobe"
 	"github.com/pgaskin/asslcapture/internal/scanner"
 	"github.com/spf13/pflag"
+	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -130,7 +130,14 @@ func main() {
 		slog.Warn("using noread probe, secret reading will be racy and may drop or return incorrect secrets")
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	var sigs []os.Signal
+	sigs = append(sigs, unix.SIGINT)
+	sigs = append(sigs, unix.SIGTERM)
+	if config.CaptureOutput == "-" {
+		sigs = append(sigs, unix.SIGHUP)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), sigs...)
 	defer stop()
 
 	if config.ExitEOF {
@@ -145,7 +152,7 @@ func main() {
 	context.AfterFunc(ctx, func() {
 		slog.Info("stopping gracefully (signal again to force exit)")
 		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+		signal.Notify(ch, sigs...)
 		<-ch
 		slog.Error("exiting immediately")
 		os.Exit(1)
